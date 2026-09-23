@@ -7,3 +7,4 @@ export * from './sessions.js';
 export * from './git.js';
 export * from './preview.js';
 export * from './pm.js';
+export * from './agent-tools.js';

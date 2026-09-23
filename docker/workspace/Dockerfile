@@ -34,7 +34,7 @@ RUN pnpm --filter @vibe/shared build \
 RUN set -eux; \
     PTY_VERSION="$(node -p "require('/src/packages/workspace-daemon/node_modules/node-pty/package.json').version")"; \
     mkdir -p /opt/wsd; \
-    cp packages/workspace-daemon/dist/wsd.js packages/workspace-daemon/dist/wsd.js.map /opt/wsd/; \
+    cp packages/workspace-daemon/dist/wsd.js packages/workspace-daemon/dist/wsd.js.map packages/workspace-daemon/dist/agentforge-mcp.js /opt/wsd/; \
     cd /opt/wsd; \
     printf '{"name":"wsd-runtime","private":true,"type":"module"}\n' > package.json; \
     npm install --omit=dev --no-audit --no-fund --no-save "node-pty@${PTY_VERSION}"; \
@@ -138,7 +138,9 @@ RUN sed -i 's/\r$//' /usr/local/bin/install-agents.sh && chmod 755 /usr/local/bi
 # Workspace daemon
 COPY --from=wsd-build /opt/wsd /opt/wsd
 RUN sed -i 's/\r$//' /opt/wsd/git-credential-vibe && chmod 755 /opt/wsd/git-credential-vibe \
- && git config --system credential.helper /opt/wsd/git-credential-vibe
+ && git config --system credential.helper /opt/wsd/git-credential-vibe \
+ && printf '#!/bin/sh\nexec node /opt/wsd/agentforge-mcp.js "$@"\n' > /usr/local/bin/agentforge-mcp \
+ && chmod 755 /usr/local/bin/agentforge-mcp
 COPY docker/workspace/entrypoint.sh /usr/local/bin/vibe-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/vibe-entrypoint.sh && chmod 755 /usr/local/bin/vibe-entrypoint.sh \
  && mkdir -p /workspace /opt/vibe-tools/bin /opt/vibe-tools/lib /run/vibe \

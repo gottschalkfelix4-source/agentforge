@@ -23,6 +23,7 @@ import { createGitModule } from './git.js';
 import type { WsdContext } from './module.js';
 import { createToolsModule } from './tools.js';
 import { handleProxyRequest, handleProxyUpgrade } from './tunnel.js';
+import { createAppBridge } from './app-bridge.js';
 
 const PROXY_RE = /^\/proxy\/(\d{1,5})(\/.*)?$/;
 
@@ -69,6 +70,7 @@ export class WsdServer {
   private readonly handlers: Record<WsdMethod, Handler>;
   private tokenWarned = false;
   private readonly agents: ReturnType<typeof createAgentModule>;
+  private readonly appBridge: ReturnType<typeof createAppBridge>;
 
   constructor(private readonly cfg: WsdConfig) {
     this.fsops = new FsOps(cfg.root);
@@ -83,6 +85,7 @@ export class WsdServer {
     this.agents = createAgentModule(moduleCtx);
     const git = createGitModule(moduleCtx);
     const tools = createToolsModule(moduleCtx);
+    this.appBridge = createAppBridge({ ...moduleCtx, connectedApps: () => this.rpcClients.size });
 
     const str = (v: unknown, name: string): string => {
       if (typeof v !== 'string') throw invalidParams(`${name} must be a string`);
@@ -127,12 +130,21 @@ export class WsdServer {
       ...(this.agents.handlers as unknown as Record<string, Handler>),
       ...(git.handlers as unknown as Record<string, Handler>),
       ...(tools.handlers as unknown as Record<string, Handler>),
+      ...(this.appBridge.handlers as unknown as Record<string, Handler>),
     } as unknown as Record<WsdMethod, Handler>;
 
     this.http = http.createServer((req, res) => {
       if (req.method === 'GET' && (req.url === '/health' || req.url?.startsWith('/health?'))) {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      if (req.method === 'POST' && req.url === '/app-call') {
+        if (!checkBearer(req.headers.authorization, readToken(this.cfg))) {
+          res.writeHead(401).end();
+          return;
+        }
+        this.appBridge.handle(req, res);
         return;
       }
       const proxy = PROXY_RE.exec(req.url ?? '');

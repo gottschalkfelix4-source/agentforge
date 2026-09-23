@@ -13,6 +13,7 @@ import {
   FileSearch,
   FileText,
   GitCompareArrows,
+  KanbanSquare,
   Globe,
   ListChecks,
   Loader2,
@@ -118,6 +119,29 @@ function ThinkTool({ item }: { item: ToolItem }) {
 
 // ---- tools ------------------------------------------------------------------------------
 
+/** Friendly labels for the Agentforge board tools (agents prefix them differently: mcp__agentforge__x, agentforge_x, …). */
+const BOARD_TOOL_LABELS: Record<string, string> = {
+  project_overview: 'Board-Überblick gelesen',
+  current_task: 'Aktuelle Aufgabe gelesen',
+  tasks_list: 'Aufgaben gelesen',
+  task_get: 'Aufgabe gelesen',
+  task_create: 'Aufgabe angelegt',
+  task_update: 'Aufgabe bearbeitet',
+  task_set_status: 'Aufgaben-Status geändert',
+  milestones_list: 'Roadmap gelesen',
+  milestone_create: 'Meilenstein angelegt',
+  milestone_update: 'Meilenstein bearbeitet',
+  notes_list: 'Notizen gelesen',
+  note_get: 'Notiz gelesen',
+  note_create: 'Notiz angelegt',
+  note_update: 'Notiz bearbeitet',
+};
+
+function boardToolLabel(title: string): string | null {
+  const m = /agentforge(?:__|[_.:/s-])+([a-z_]+)/i.exec(title);
+  return m ? (BOARD_TOOL_LABELS[m[1]!.toLowerCase()] ?? null) : null;
+}
+
 const TOOL_ICONS: Record<ToolKind, React.ComponentType<{ className?: string }>> = {
   exec: SquareTerminal,
   edit: FilePen,
@@ -179,7 +203,8 @@ function ExecOutput({ item }: { item: ToolItem }) {
 }
 
 const ToolCard = React.memo(function ToolCard({ item }: { item: ToolItem }) {
-  const Icon = TOOL_ICONS[item.toolKind] ?? Wrench;
+  const board = boardToolLabel(item.title);
+  const Icon = board ? KanbanSquare : (TOOL_ICONS[item.toolKind] ?? Wrench);
   const [open, setOpen] = React.useState(false);
   const cmd = item.toolKind === 'exec' ? commandOf(item) : null;
   const location = item.locations?.[0];
@@ -205,7 +230,7 @@ const ToolCard = React.memo(function ToolCard({ item }: { item: ToolItem }) {
           className="group flex max-w-full cursor-pointer items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default"
         >
           <Icon className="size-3.5 shrink-0" />
-          <span className="truncate">{item.title}</span>
+          <span className="truncate">{board ?? item.title}</span>
           {location && location !== item.title && (
             <span className="truncate font-mono text-[11.5px] text-muted-foreground/70">{location}</span>
           )}

@@ -144,6 +144,9 @@ export interface WsdMethods {
 
   // tools (Phase 6)
   'tools.versions': [Record<string, never>, ToolVersion[]];
+
+  /** Answer to an `app.request` notification (Agentforge tools called by agents in the workspace). */
+  'app.respond': [{ id: string; result?: unknown; error?: string }, { ok: true }];
 }
 
 export type WsdMethod = keyof WsdMethods;
@@ -156,6 +159,8 @@ export interface WsdNotifications {
   'ports.changed': { ports: ListeningPort[] };
   'agent.event': { sessionId: string; seq: number; ts: string; event: AgentEvent };
   'agent.exit': { sessionId: string; code: number | null; message?: string };
+  /** An agent in the workspace calls an Agentforge tool; the app answers with `app.respond`. */
+  'app.request': { id: string; method: string; params: unknown; sessionId: string | null };
 }
 
 export type TermControl =

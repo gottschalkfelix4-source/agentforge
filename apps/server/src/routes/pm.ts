@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { TASK_COLUMNS, type WsdNotifications } from '@vibe/shared';
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
 import type { AppContext } from '../app-context.js';
 import { bus } from '../events.js';
 import type { RawPull } from '../github/mappers.js';
 import { githubService } from '../github/service.js';
 import { PmRepo, publishPm, toNote } from '../pm/repo.js';
+import { AgentTools } from '../pm/agent-tools.js';
 import { TaskRunService, type WsdLike } from '../pm/runs.js';
 import { PmSync } from '../pm/sync.js';
 import { SessionService, toSession, type SessionRow } from '../sessions/service.js';
@@ -105,6 +106,32 @@ export async function pmRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   const projectOfTask = (tid: string) => repo.taskRow(tid).project_id;
+
+  // ---- Agentforge tools for agents (agentforge-mcp → wsd /app-call → app.request) -----------------
+  const agentTools = new AgentTools(repo);
+  ctx.workspaces.onWsdNotification((projectId, method, params) => {
+    if (method !== 'app.request') return;
+    const r = params as WsdNotifications['app.request'];
+    // Only sessions of this project may claim a task context.
+    const sessionId =
+      r.sessionId && ctx.db.get('SELECT id FROM agent_sessions WHERE id = ? AND project_id = ?', r.sessionId, projectId) ? r.sessionId : null;
+    let reply: { result?: unknown; error?: string };
+    try {
+      reply = { result: agentTools.run(projectId, sessionId, r.method, r.params) };
+    } catch (err) {
+      reply = {
+        error:
+          err instanceof ZodError
+            ? `Ungültige Parameter: ${err.issues.map((i) => `${i.path.join('.') || 'args'}: ${i.message}`).join('; ')}`
+            : (err as Error).message,
+      };
+    }
+    try {
+      void ctx.workspaces.client(projectId).call('app.respond', { id: r.id, ...reply }).catch(() => undefined);
+    } catch {
+      /* workspace disconnected meanwhile — the tool call times out on its side */
+    }
+  });
 
   // ---- tasks ---------------------------------------------------------------------------------
 

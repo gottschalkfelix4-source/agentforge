@@ -11,7 +11,7 @@ import type {
   StructuredTransport,
   WsdNotifications,
 } from '@vibe/shared';
-import { getAgentManifest } from '@vibe/shared';
+import { AGENTFORGE_MCP_NAME, getAgentManifest } from '@vibe/shared';
 import { ulid } from 'ulid';
 import { buildStructuredLaunch } from '../agents/launch.js';
 import type { AppContext } from '../app-context.js';
@@ -27,6 +27,14 @@ const TITLE_MAX = 60;
 export const CHAT_SETTING_KEY = 'allowClaudeSubscriptionChat';
 
 /** Playwright MCP from the workspace image (`@playwright/mcp`, bin `playwright-mcp`). */
+/** Agentforge board tools (tasks + status, milestones, notes) for the agent of one chat session. */
+export const agentforgeMcp = (sessionId: string): McpServerSpec => ({
+  name: AGENTFORGE_MCP_NAME,
+  command: 'agentforge-mcp',
+  args: [],
+  env: { AGENTFORGE_SESSION_ID: sessionId },
+});
+
 export const PLAYWRIGHT_MCP: McpServerSpec = {
   name: 'playwright',
   command: 'playwright-mcp',
@@ -330,7 +338,7 @@ export class SessionService {
       // Provider sessions: the model is part of the launch (env/config); the agent's own ids don't apply.
       model: this.providerModels(row) ? launch.model : ((resume ? row.current_model : null) ?? launch.model),
       mode: resume ? row.current_mode : null,
-      mcpServers: [PLAYWRIGHT_MCP],
+      mcpServers: [agentforgeMcp(row.id), PLAYWRIGHT_MCP],
       resumeExternalId: resume ? row.external_id : null,
       startSeq: row.last_seq,
     };

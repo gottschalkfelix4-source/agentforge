@@ -95,6 +95,7 @@ export function buildTaskPrompt(c: PromptContext): string {
     '- Arbeite ausschließlich in diesem Verzeichnis. Ändere keine Dateien außerhalb davon und wechsle nicht den Branch.',
     '- Setze die Aufgabe vollständig um. Führe vorhandene Tests, Linter oder Builds aus, wenn das sinnvoll ist.',
     '- Wenn du fertig bist, committe alle Änderungen mit einer aussagekräftigen Commit-Nachricht (`git add -A && git commit`). Pushen ist nicht nötig – das übernimmt Agentforge.',
+    '- Über die Agentforge-Tools (MCP-Server `agentforge`) hast du Zugriff auf das Projekt-Board: lege für Folgearbeiten eigene Aufgaben an (`task_create`), halte Entscheidungen in Notizen fest (`note_create`/`note_update`) und schau bei Bedarf in Roadmap und andere Aufgaben. Den Status dieser Aufgabe setzt Agentforge beim Abschluss selbst auf „Review“.',
     '- Fasse zum Schluss kurz zusammen, was du geändert hast und was ggf. noch offen ist.',
   ].join('\n');
 }

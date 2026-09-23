@@ -257,3 +257,20 @@ locally with GitHub's color), milestone ↔ milestone (title, description, due d
 and *local changed* = `updated_at > gh_updated_at`; both changed → last writer wins by timestamp (logged as "Konflikt").
 Local tasks/milestones without a GitHub counterpart are created on GitHub only when `syncCreateIssues` is on.
 Every pull/push/conflict is written to `sync_log`.
+
+## Agentforge-Tools für Agents (MCP)
+
+Jede Chat-Session bekommt automatisch den MCP-Server `agentforge` (Programm `agentforge-mcp` im Workspace-Image,
+Definitionen in `packages/shared/src/agent-tools.ts`). Damit können alle Agents das Projekt-Board nutzen:
+
+| Tool | Zweck |
+|---|---|
+| `project_overview`, `current_task` | Überblick (Status-Zählung, offene Meilensteine, angeheftete Notizen) bzw. die Aufgabe dieser Session |
+| `tasks_list`, `task_get`, `task_create`, `task_update`, `task_set_status` | Aufgaben lesen, anlegen, bearbeiten, Status (backlog/todo/in_progress/review/done) setzen |
+| `milestones_list`, `milestone_create`, `milestone_update` | Roadmap |
+| `notes_list`, `note_get`, `note_create`, `note_update` | Projektnotizen (inkl. `append`) |
+
+Weg eines Aufrufs: `agentforge-mcp` (stdio) → `POST 127.0.0.1:7777/app-call` (wsd, Bearer-Token des Workspaces) →
+Notification `app.request` an die App → `AgentTools` (`apps/server/src/pm/agent-tools.ts`) → Antwort per `app.respond`.
+Aufrufe sind auf das Projekt des Workspaces beschränkt; Änderungen lösen `pm.changed` aus (Board aktualisiert sich live).
+Löschen ist über die Tools bewusst nicht möglich.

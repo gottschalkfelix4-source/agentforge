@@ -21,3 +21,14 @@ await build({
   },
   logLevel: 'info',
 });
+
+// MCP server for agents (tasks, milestones, notes) — small, no native deps.
+await build({
+  entryPoints: ['src/mcp.ts'],
+  outfile: 'dist/agentforge-mcp.js',
+  bundle: true,
+  platform: 'node',
+  target: 'node22',
+  format: 'esm',
+  logLevel: 'info',
+});
