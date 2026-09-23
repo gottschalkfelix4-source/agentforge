@@ -16,6 +16,8 @@ import type {
   FileDiff,
   ImageInput,
   PlanEntry,
+  QuestionAnswers,
+  QuestionField,
   SessionEventRecord,
   SessionStatus,
   ToolKind,
@@ -74,13 +76,24 @@ export interface ApprovalItem {
   resolvedOptionId: string | null;
 }
 
+export interface QuestionItem {
+  kind: 'question';
+  key: string;
+  id: string;
+  toolId?: string;
+  message: string;
+  fields: QuestionField[];
+  /** null while open. */
+  resolved: { action: 'accept' | 'decline' | 'cancel'; answers?: QuestionAnswers } | null;
+}
+
 export interface ErrorItem {
   kind: 'error';
   key: string;
   message: string;
 }
 
-export type TranscriptItem = UserItem | MessageItem | ToolItem | ApprovalItem | ErrorItem;
+export type TranscriptItem = UserItem | MessageItem | ToolItem | ApprovalItem | QuestionItem | ErrorItem;
 
 export interface Usage {
   inputTokens?: number;
@@ -387,6 +400,18 @@ function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
       const pos = d.find(`approval:${ev.id}`);
       if (!pos) return;
       d.item<ApprovalItem>(pos).resolvedOptionId = ev.optionId;
+      return;
+    }
+    case 'question.request': {
+      const key = `question:${ev.id}`;
+      if (d.find(key)) return;
+      d.add({ kind: 'question', key, id: ev.id, toolId: ev.toolId, message: ev.message, fields: ev.fields, resolved: null });
+      return;
+    }
+    case 'question.resolved': {
+      const pos = d.find(`question:${ev.id}`);
+      if (!pos) return;
+      d.item<QuestionItem>(pos).resolved = { action: ev.action, ...(ev.answers ? { answers: ev.answers } : {}) };
       return;
     }
     case 'plan': {

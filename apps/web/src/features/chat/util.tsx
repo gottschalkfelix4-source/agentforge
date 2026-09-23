@@ -29,7 +29,7 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
   starting: 'Startet…',
   idle: 'Bereit',
   running: 'Arbeitet…',
-  awaiting_approval: 'Wartet auf Freigabe',
+  awaiting_approval: 'Wartet auf dich',
   error: 'Fehler',
   stopped: 'Beendet',
 };

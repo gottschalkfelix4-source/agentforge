@@ -54,6 +54,16 @@ export async function sessionsRoutes(app: FastifyInstance, ctx: AppContext) {
     const body = approvalBody.parse(req.body);
     return svc.respond(req.params.sid, body.requestId, body.optionId);
   });
+  app.post<S>('/api/sessions/:sid/answer', async (req) => {
+    const body = z
+      .object({
+        requestId: z.string().min(1),
+        action: z.enum(['accept', 'decline', 'cancel']),
+        answers: z.record(z.string(), z.union([z.string().max(20_000), z.array(z.string().max(2_000)).max(100), z.boolean(), z.number()])).optional(),
+      })
+      .parse(req.body);
+    return svc.answer(req.params.sid, body);
+  });
   app.post<S>('/api/sessions/:sid/mode', async (req) => svc.setMode(req.params.sid, z.object({ mode: z.string().min(1) }).parse(req.body).mode));
   app.post<S>('/api/sessions/:sid/model', async (req) => svc.setModel(req.params.sid, z.object({ model: z.string().min(1) }).parse(req.body).model));
   app.post<S>('/api/sessions/:sid/stop', async (req) => svc.stop(req.params.sid));

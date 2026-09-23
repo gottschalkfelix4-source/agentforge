@@ -21,6 +21,20 @@ export interface ApprovalOption {
   kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always';
 }
 
+/** One field of an agent question (ACP form elicitation, e.g. Claude Code's AskUserQuestion). */
+export interface QuestionField {
+  key: string;
+  kind: 'single' | 'multi' | 'text' | 'boolean' | 'number';
+  title?: string;
+  description?: string;
+  options?: { value: string; label: string; description?: string; preview?: string }[];
+  /** Free-text field that complements the choice field with this key ("Eigene Antwort"). */
+  customFor?: string;
+  required?: boolean;
+}
+
+export type QuestionAnswers = Record<string, string | string[] | boolean | number>;
+
 export interface PlanEntry {
   text: string;
   status: 'pending' | 'in_progress' | 'completed';
@@ -67,6 +81,9 @@ export type AgentEvent =
       options: ApprovalOption[];
     }
   | { type: 'approval.resolved'; id: string; optionId: string }
+  /** The agent asks the user something (answer via agent.answer). */
+  | { type: 'question.request'; id: string; toolId?: string; message: string; fields: QuestionField[] }
+  | { type: 'question.resolved'; id: string; action: 'accept' | 'decline' | 'cancel'; answers?: QuestionAnswers }
   | { type: 'plan'; entries: PlanEntry[] }
   | { type: 'diff.turn'; files: FileDiff[] }
   | { type: 'usage'; inputTokens?: number; outputTokens?: number; costUsd?: number; contextPercent?: number }

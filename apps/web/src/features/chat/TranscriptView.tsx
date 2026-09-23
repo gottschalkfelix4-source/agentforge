@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { toast } from 'sonner';
-import type { FileDiff, ImageInput, PlanEntry, ToolKind } from '@vibe/shared';
+import type { FileDiff, ImageInput, PlanEntry, QuestionResponse, ToolKind } from '@vibe/shared';
 import {
   AlertTriangle,
   ArrowDown,
@@ -31,14 +31,16 @@ import { DiffList, DiffStat } from './DiffView';
 import { diffStats } from './diff';
 import { Markdown } from './Markdown';
 import { ThoughtView } from './ThoughtBlock';
-import type { ApprovalItem, MessageItem, ToolItem, TranscriptItem, TranscriptState, Turn, Usage } from './transcript';
+import type { ApprovalItem, MessageItem, QuestionItem, ToolItem, TranscriptItem, TranscriptState, Turn, Usage } from './transcript';
+import { QuestionCard } from './QuestionCard';
 import { formatTokens } from './util';
 
 interface Ctx {
   projectId: string;
   approve: (requestId: string, optionId: string) => Promise<unknown>;
+  answer: (body: QuestionResponse) => Promise<unknown>;
 }
-const TranscriptCtx = React.createContext<Ctx>({ projectId: '', approve: async () => {} });
+const TranscriptCtx = React.createContext<Ctx>({ projectId: '', approve: async () => {}, answer: async () => {} });
 
 // ---- user bubble ------------------------------------------------------------------
 
@@ -419,6 +421,11 @@ export function UsageLine({ usage, className }: { usage: Usage; className?: stri
   return <div className={cn('font-mono text-[10.5px] text-muted-foreground/70 tabular-nums', className)}>{parts.join(' · ')}</div>;
 }
 
+function QuestionCardRow({ item }: { item: QuestionItem }) {
+  const { answer } = React.useContext(TranscriptCtx);
+  return <QuestionCard item={item} onAnswer={answer} />;
+}
+
 // ---- rows / turns -----------------------------------------------------------------------
 
 const Row = React.memo(function Row({ item }: { item: TranscriptItem }) {
@@ -431,6 +438,8 @@ const Row = React.memo(function Row({ item }: { item: TranscriptItem }) {
       return item.toolKind === 'think' ? <ThinkTool item={item} /> : <ToolCard item={item} />;
     case 'approval':
       return <ApprovalCard item={item} />;
+    case 'question':
+      return <QuestionCardRow item={item} />;
     case 'error':
       return (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
@@ -479,12 +488,14 @@ export function TranscriptView({
   state,
   projectId,
   approve,
+  answer,
   footer,
   sessionKey,
 }: {
   state: TranscriptState;
   projectId: string;
   approve: Ctx['approve'];
+  answer: Ctx['answer'];
   /** Rendered after the last turn (optimistic prompt, working indicator). */
   footer?: React.ReactNode;
   /** Changing it resets scroll to the bottom. */
@@ -495,7 +506,7 @@ export function TranscriptView({
   const stick = React.useRef(true);
   const [atBottom, setAtBottom] = React.useState(true);
   const [limit, setLimit] = React.useState(PAGE_TURNS);
-  const ctx = React.useMemo(() => ({ projectId, approve }), [projectId, approve]);
+  const ctx = React.useMemo(() => ({ projectId, approve, answer }), [projectId, approve, answer]);
 
   React.useLayoutEffect(() => {
     stick.current = true;
@@ -555,7 +566,7 @@ export function TranscriptView({
   const visible = start > 0 ? turns.slice(start) : turns;
   const pendingApproval = React.useMemo(() => {
     const last = turns[turns.length - 1];
-    return !!last?.items.some((i) => i.kind === 'approval' && !i.resolvedOptionId);
+    return !!last?.items.some((i) => (i.kind === 'approval' && !i.resolvedOptionId) || (i.kind === 'question' && !i.resolved));
   }, [turns]);
 
   return (
@@ -590,7 +601,7 @@ export function TranscriptView({
             )}
           >
             <ArrowDown className="size-3.5" />
-            {pendingApproval ? 'Freigabe erforderlich' : 'Nach unten'}
+            {pendingApproval ? 'Eingabe erforderlich' : 'Nach unten'}
           </button>
         )}
       </div>

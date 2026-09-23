@@ -6,6 +6,7 @@ import type {
   AgentSessionState,
   AgentStartParams,
   ImageInput,
+  QuestionAnswers,
   SessionEventRecord,
   SessionStatus,
   StructuredTransport,
@@ -156,6 +157,12 @@ export class AgentHost {
         this.emit(s, e);
         this.setStatus(s, 'awaiting_approval');
         return;
+      case 'question.request':
+        s.approvals.add(e.id);
+        this.emit(s, e);
+        this.setStatus(s, 'awaiting_approval');
+        return;
+      case 'question.resolved':
       case 'approval.resolved':
         s.approvals.delete(e.id);
         this.emit(s, e);
@@ -368,6 +375,19 @@ export class AgentHost {
     const s = this.requireRunning(p.sessionId);
     try {
       s.handle.respondApproval(str(p.requestId, 'requestId'), str(p.optionId, 'optionId'));
+    } catch (err) {
+      if (err instanceof WsdError) throw err;
+      throw new WsdError('ENOENT', (err as Error).message);
+    }
+    return { ok: true };
+  }
+
+  answer(p: { sessionId: string; requestId: string; action: 'accept' | 'decline' | 'cancel'; answers?: QuestionAnswers }): { ok: true } {
+    const s = this.requireRunning(p.sessionId);
+    if (!s.handle.respondQuestion) throw new WsdError('ENOTSUP', 'Der Agent unterstützt keine Rückfragen');
+    const action = p.action === 'accept' || p.action === 'decline' ? p.action : 'cancel';
+    try {
+      s.handle.respondQuestion(str(p.requestId, 'requestId'), action, p.answers);
     } catch (err) {
       if (err instanceof WsdError) throw err;
       throw new WsdError('ENOENT', (err as Error).message);

@@ -44,6 +44,8 @@ export interface AgentSessionHandle {
   cancel(): Promise<void>;
   /** Answers an `approval.request` event. */
   respondApproval(requestId: string, optionId: string): void;
+  /** Answers an agent question (ACP form elicitation). Only adapters that ask questions implement it. */
+  respondQuestion?(requestId: string, action: 'accept' | 'decline' | 'cancel', answers?: import('@vibe/shared').QuestionAnswers): void;
   setMode?(mode: string): Promise<void>;
   setModel?(model: string): Promise<void>;
   /** Kills the process. */

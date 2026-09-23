@@ -7,7 +7,7 @@
 // Terminal channel: WebSocket `ws://<container>:7777/term/<id>` (same auth)
 //   binary frames = raw PTY bytes (both directions); text frames = TermControl JSON.
 
-import type { AgentEvent, ImageInput, McpServerSpec, SessionEventRecord } from './agent-events.js';
+import type { AgentEvent, ImageInput, McpServerSpec, QuestionAnswers, SessionEventRecord } from './agent-events.js';
 import type { GitBranches, GitCommit, GitCwd, GitStatus, GitWorktree } from './git.js';
 import type { FsEntry, TerminalInfo } from './models.js';
 import type { StructuredTransport } from './sessions.js';
@@ -107,6 +107,10 @@ export interface WsdMethods {
   'agent.prompt': [{ sessionId: string; text: string; images?: ImageInput[] }, { ok: true }];
   'agent.cancel': [{ sessionId: string }, { ok: true }];
   'agent.respond': [{ sessionId: string; requestId: string; optionId: string }, { ok: true }];
+  'agent.answer': [
+    { sessionId: string; requestId: string; action: 'accept' | 'decline' | 'cancel'; answers?: QuestionAnswers },
+    { ok: true },
+  ];
   'agent.setMode': [{ sessionId: string; value: string }, { ok: true }];
   'agent.setModel': [{ sessionId: string; value: string }, { ok: true }];
   'agent.stop': [{ sessionId: string }, { ok: true }];

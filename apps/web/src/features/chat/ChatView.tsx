@@ -205,7 +205,7 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
       ) : (running || status === 'starting') && (
         <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin text-brand" />
-          {status === 'starting' ? 'Agent startet…' : status === 'awaiting_approval' ? 'Wartet auf deine Freigabe…' : 'Arbeitet…'}
+          {status === 'starting' ? 'Agent startet…' : status === 'awaiting_approval' ? 'Wartet auf deine Eingabe…' : 'Arbeitet…'}
         </div>
       )}
     </>
@@ -285,6 +285,7 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
           state={state}
           projectId={projectId}
           approve={actions.approval}
+          answer={actions.answer}
           footer={footer}
           sessionKey={session.id}
         />

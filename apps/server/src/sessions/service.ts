@@ -5,6 +5,7 @@ import type {
   CreateSessionRequest,
   ImageInput,
   McpServerSpec,
+  QuestionResponse,
   SessionEventRecord,
   SessionStatus,
   StructuredTransport,
@@ -459,7 +460,11 @@ export class SessionService {
     return { ok: true as const };
   }
 
-  private async call(id: string, method: 'agent.cancel' | 'agent.respond' | 'agent.setMode' | 'agent.setModel', extra: Record<string, string>): Promise<{ ok: true }> {
+  private async call(
+    id: string,
+    method: 'agent.cancel' | 'agent.respond' | 'agent.answer' | 'agent.setMode' | 'agent.setModel',
+    extra: Record<string, unknown>,
+  ): Promise<{ ok: true }> {
     const row = this.store.require(id);
     const client = await this.clientFor(row);
     try {
@@ -478,6 +483,10 @@ export class SessionService {
 
   respond(id: string, requestId: string, optionId: string) {
     return this.call(id, 'agent.respond', { requestId, optionId });
+  }
+
+  answer(id: string, body: QuestionResponse) {
+    return this.call(id, 'agent.answer', { requestId: body.requestId, action: body.action, ...(body.answers ? { answers: body.answers } : {}) });
   }
 
   setMode(id: string, value: string) {

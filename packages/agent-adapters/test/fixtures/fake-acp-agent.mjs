@@ -44,8 +44,39 @@ const modes = () => ({
   ],
 });
 
+let clientCaps = {};
+
 async function runPrompt(sessionId, text) {
   cancelled = false;
+  if (text.includes('ask')) {
+    // Claude Code style AskUserQuestion → ACP form elicitation (only when the client supports it).
+    if (!clientCaps.elicitation?.form) {
+      update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'no elicitation' } });
+      return { stopReason: 'end_turn' };
+    }
+    const res = await request('elicitation/create', {
+      mode: 'form',
+      sessionId,
+      toolCallId: 'ask1',
+      message: 'Welche Datenbank?',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          q0: {
+            type: 'string',
+            title: 'DB',
+            oneOf: [
+              { const: 'SQLite', title: 'SQLite', description: 'Eingebettet' },
+              { const: 'Postgres', title: 'Postgres', _meta: { 'x/opt': { preview: 'CREATE TABLE …' } } },
+            ],
+          },
+          q0_custom: { type: 'string', title: 'Other', _meta: { 'x/custom': { questionId: 'q0', isCustomAnswer: true } } },
+        },
+      },
+    });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Antwort: ' + JSON.stringify(res) } });
+    return { stopReason: 'end_turn' };
+  }
   if (text.includes('slow')) {
     for (let i = 0; i < 200 && !cancelled; i++) {
       update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '.' } });
@@ -125,6 +156,7 @@ async function handle(msg) {
   const { id, method, params } = msg;
   switch (method) {
     case 'initialize':
+      clientCaps = params.clientCapabilities ?? {};
       return {
         protocolVersion: 1,
         agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },

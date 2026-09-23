@@ -6,8 +6,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type * as acp from '@agentclientprotocol/sdk';
-import type { AgentEvent, ApprovalOption, FileDiff, ImageInput, PlanEntry, ToolKind } from '@vibe/shared';
+import type { AgentEvent, ApprovalOption, FileDiff, ImageInput, PlanEntry, QuestionAnswers, QuestionField, ToolKind } from '@vibe/shared';
 import { BaseSession, newId } from './base.js';
+import { answersToContent, schemaToFields, type ElicitationResponse, type FormElicitation } from './elicitation.js';
 import { RpcError } from './jsonrpc.js';
 import type { AgentAdapter, AgentSessionHandle, AgentStartOptions } from './types.js';
 
@@ -82,6 +83,8 @@ export class AcpSession extends BaseSession {
   private legacyModels: LegacyModelState | null = null;
   private readonly tools = new Map<string, ToolState>();
   private readonly approvals = new Map<string, PendingApproval>();
+  /** Open questions (form elicitations) waiting for the user's answer. */
+  private readonly questions = new Map<string, { fields: QuestionField[]; resolve: (r: ElicitationResponse) => void }>();
   private turnActive = false;
   /** Updates are suppressed while session/load replays the history (we already have it). */
   private replaying = false;
@@ -97,7 +100,8 @@ export class AcpSession extends BaseSession {
   protected async handshake(): Promise<void> {
     const init = await this.rpc.request<acp.InitializeResponse>('initialize', {
       protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
+      // `elicitation.form`: we render agent questions (Claude Code only enables AskUserQuestion with it).
+      clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {} } } as acp.ClientCapabilities,
       clientInfo: { name: this.opts.clientName ?? 'agentforge', title: 'Agentforge', version: this.opts.clientVersion ?? '0.1.0' },
     } satisfies acp.InitializeRequest);
     this.caps = init.agentCapabilities ?? {};
@@ -190,6 +194,8 @@ export class AcpSession extends BaseSession {
     switch (method) {
       case 'session/request_permission':
         return this.requestPermission(params as acp.RequestPermissionRequest);
+      case 'elicitation/create':
+        return this.askQuestion(params as FormElicitation);
       case 'fs/read_text_file': {
         const p = params as acp.ReadTextFileRequest;
         const abs = path.resolve(this.opts.cwd, p.path);
@@ -244,6 +250,47 @@ export class AcpSession extends BaseSession {
     });
   }
 
+  private askQuestion(p: FormElicitation): Promise<ElicitationResponse> {
+    // URL-mode elicitations (MCP OAuth) are not supported; the agent handles the decline.
+    if (p.mode && p.mode !== 'form') return Promise.resolve({ action: 'decline' });
+    const fields = schemaToFields(p);
+    if (!fields.length) return Promise.resolve({ action: 'decline' });
+    this.closeMessages();
+    const id = newId();
+    return new Promise((resolve) => {
+      this.questions.set(id, { fields, resolve });
+      this.emit({
+        type: 'question.request',
+        id,
+        ...(p.toolCallId ? { toolId: p.toolCallId } : {}),
+        message: p.message ?? 'Der Agent hat eine Frage',
+        fields,
+      });
+    });
+  }
+
+  respondQuestion(requestId: string, action: 'accept' | 'decline' | 'cancel', answers?: QuestionAnswers): void {
+    const q = this.questions.get(requestId);
+    if (!q) throw new Error('Unbekannte oder bereits beantwortete Frage');
+    this.questions.delete(requestId);
+    if (action === 'accept') {
+      const content = answersToContent(q.fields, answers);
+      q.resolve({ action: 'accept', content });
+      this.emit({ type: 'question.resolved', id: requestId, action, answers: content });
+    } else {
+      q.resolve({ action });
+      this.emit({ type: 'question.resolved', id: requestId, action });
+    }
+  }
+
+  private cancelQuestions() {
+    for (const [id, q] of this.questions) {
+      q.resolve({ action: 'cancel' });
+      this.emit({ type: 'question.resolved', id, action: 'cancel' });
+    }
+    this.questions.clear();
+  }
+
   respondApproval(requestId: string, optionId: string): void {
     const a = this.approvals.get(requestId);
     if (!a) throw new Error('Unbekannte oder bereits beantwortete Anfrage');
@@ -267,6 +314,7 @@ export class AcpSession extends BaseSession {
 
   protected override onProcessExit(): void {
     this.approvals.clear();
+    this.questions.clear();
     if (this.turnActive) {
       this.turnActive = false;
       this.closeMessages();
@@ -445,6 +493,7 @@ export class AcpSession extends BaseSession {
     if (!this.turnActive) return;
     this.turnActive = false;
     this.cancelApprovals();
+    this.cancelQuestions();
     // Tools the agent never finished (e.g. on cancel) are closed so the UI stops spinning.
     for (const [id, t] of this.tools) {
       if (!t.done) {
@@ -458,6 +507,7 @@ export class AcpSession extends BaseSession {
   async cancel(): Promise<void> {
     if (!this.sessionId) return;
     this.cancelApprovals();
+    this.cancelQuestions();
     this.rpc.notify('session/cancel', { sessionId: this.sessionId } satisfies acp.CancelNotification);
   }
 

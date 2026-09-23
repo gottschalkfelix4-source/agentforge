@@ -3,7 +3,7 @@ import { AgentHost, type Starter } from './host.js';
 
 // Phase 2 – hosts structured agent processes (ACP / Codex app-server) via @vibe/agent-adapters.
 export type AgentMethod =
-  | 'agent.start' | 'agent.prompt' | 'agent.cancel' | 'agent.respond' | 'agent.setMode'
+  | 'agent.start' | 'agent.prompt' | 'agent.cancel' | 'agent.respond' | 'agent.answer' | 'agent.setMode'
   | 'agent.setModel' | 'agent.stop' | 'agent.list' | 'agent.events';
 
 export function createAgentModule(
@@ -18,6 +18,7 @@ export function createAgentModule(
       'agent.prompt': (p) => host.prompt(p),
       'agent.cancel': (p) => host.cancel(p),
       'agent.respond': (p) => host.respond(p),
+      'agent.answer': (p) => host.answer(p),
       'agent.setMode': (p) => host.setMode(p),
       'agent.setModel': (p) => host.setModel(p),
       'agent.stop': (p) => host.stop(p),

@@ -5,6 +5,7 @@ import type {
   CreateSessionRequest,
   ImageInput,
   PromptRequest,
+  QuestionResponse,
   ServerEvent,
   SessionEventRecord,
 } from '@vibe/shared';
@@ -28,6 +29,7 @@ export const chatApi = {
   cancel: (sid: string) => request<Ok>(`${s(sid)}/cancel`, { method: 'POST' }),
   approval: (sid: string, requestId: string, optionId: string) =>
     request<Ok>(`${s(sid)}/approval`, { method: 'POST', body: { requestId, optionId } }),
+  answer: (sid: string, body: QuestionResponse) => request<Ok>(`${s(sid)}/answer`, { method: 'POST', body }),
   mode: (sid: string, mode: string) => request<Ok>(`${s(sid)}/mode`, { method: 'POST', body: { mode } }),
   model: (sid: string, model: string) => request<Ok>(`${s(sid)}/model`, { method: 'POST', body: { model } }),
   stop: (sid: string) => request<Ok>(`${s(sid)}/stop`, { method: 'POST' }),
@@ -119,6 +121,7 @@ export function useSessionActions(sid: string) {
       prompt: (text: string, images?: ImageInput[]) => chatApi.prompt(sid, { text, images: images?.length ? images : undefined }),
       cancel: () => chatApi.cancel(sid),
       approval: (requestId: string, optionId: string) => chatApi.approval(sid, requestId, optionId),
+      answer: (body: QuestionResponse) => chatApi.answer(sid, body),
       mode: (mode: string) => chatApi.mode(sid, mode),
       model: (model: string) => chatApi.model(sid, model),
       stop: () => chatApi.stop(sid),

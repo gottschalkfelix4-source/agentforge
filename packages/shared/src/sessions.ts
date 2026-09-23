@@ -44,3 +44,8 @@ export interface CreateSessionRequest {
 
 export interface PromptRequest { text: string; images?: ImageInput[] }
 export interface ApprovalResponse { requestId: string; optionId: string }
+export interface QuestionResponse {
+  requestId: string;
+  action: 'accept' | 'decline' | 'cancel';
+  answers?: import('./agent-events.js').QuestionAnswers;
+}

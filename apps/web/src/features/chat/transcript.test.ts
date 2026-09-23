@@ -268,3 +268,24 @@ describe('turn start time', () => {
     expect(s.turns[0]!.startedAt).toBe(7_000);
   });
 });
+
+describe('agent questions', () => {
+  it('adds a question item and records the answer', () => {
+    const at = (event: AgentEvent, seq: number): SessionEventRecord => ({ seq, ts: new Date(seq * 1000).toISOString(), event });
+    const s = ingest(emptyTranscript(), [
+      at({ type: 'user.message', id: 'u', text: 'Plane die App' }, 1),
+      at({
+        type: 'question.request',
+        id: 'q1',
+        message: 'Welche Datenbank?',
+        fields: [{ key: 'q0', kind: 'single', options: [{ value: 'SQLite', label: 'SQLite' }] }],
+      }, 2),
+    ], { settle: true });
+    const open = s.turns[0]!.items.find((i) => i.kind === 'question');
+    expect(open).toMatchObject({ id: 'q1', message: 'Welche Datenbank?', resolved: null });
+
+    const s2 = ingest(s, [at({ type: 'question.resolved', id: 'q1', action: 'accept', answers: { q0: 'SQLite' } }, 3)]);
+    const done = s2.turns[0]!.items.find((i) => i.kind === 'question');
+    expect(done).toMatchObject({ resolved: { action: 'accept', answers: { q0: 'SQLite' } } });
+  });
+});

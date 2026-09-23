@@ -108,6 +108,41 @@ describe('AcpAdapter', () => {
     expect(events).toContainEqual({ type: 'tool.done', id: 'tc1', status: 'failed' });
   });
 
+  it('turns form elicitations (AskUserQuestion) into questions and answers them', async () => {
+    const { h, events, waitFor } = start('acp');
+    await h.ready;
+    await h.prompt('ask');
+    const q = await waitFor('question.request');
+    expect(q).toMatchObject({ toolId: 'ask1', message: 'Welche Datenbank?' });
+    expect(q.fields).toEqual([
+      {
+        key: 'q0',
+        kind: 'single',
+        title: 'DB',
+        options: [
+          { value: 'SQLite', label: 'SQLite', description: 'Eingebettet' },
+          { value: 'Postgres', label: 'Postgres', preview: 'CREATE TABLE …' },
+        ],
+      },
+      { key: 'q0_custom', kind: 'text', title: 'Other', customFor: 'q0' },
+    ]);
+    h.respondQuestion!(q.id, 'accept', { q0: 'Postgres', q0_custom: '  mit Docker  ', ignored: 'x' });
+    await waitFor('turn.done');
+    const answer = events.find((e) => e.type === 'message.done' && e.role === 'assistant') as { text: string };
+    expect(JSON.parse(answer.text.replace('Antwort: ', ''))).toEqual({ action: 'accept', content: { q0: 'Postgres', q0_custom: 'mit Docker' } });
+    expect(events).toContainEqual({ type: 'question.resolved', id: q.id, action: 'accept', answers: { q0: 'Postgres', q0_custom: 'mit Docker' } });
+  });
+
+  it('cancel also cancels open questions', async () => {
+    const { h, events, waitFor } = start('acp');
+    await h.ready;
+    await h.prompt('ask');
+    const q = await waitFor('question.request');
+    await h.cancel();
+    await waitFor('turn.done');
+    expect(events).toContainEqual({ type: 'question.resolved', id: q.id, action: 'cancel' });
+  });
+
   it('cancel resolves pending approvals and ends the turn', async () => {
     const { h, events, waitFor } = start('acp');
     await h.ready;
