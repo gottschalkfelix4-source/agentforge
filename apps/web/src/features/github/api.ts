@@ -34,7 +34,8 @@ export const githubApi = {
   setToken: (token: string) => request<GitHubStatus>('/github/token', { method: 'POST', body: { token } }),
   disconnect: () => request<{ ok: true }>('/github', { method: 'DELETE' }),
   repos: (q: string, page = 1) => request<GhRepo[]>('/github/repos', { query: { q: q || undefined, page } }),
-  createRepo: (body: { name: string; private: boolean; description?: string | null }) =>
+  orgs: () => request<{ login: string; avatarUrl: string | null }[]>('/github/orgs'),
+  createRepo: (body: { name: string; private: boolean; description?: string | null; org?: string | null; autoInit?: boolean }) =>
     request<GhRepo>('/github/repos', { method: 'POST', body }),
   link: (projectId: string, owner: string, name: string) =>
     request<{ repo: GhRepo; remoteSet: boolean }>(`${p(projectId)}/github/link`, { method: 'POST', body: { owner, name } }),
@@ -103,3 +104,6 @@ export function useGitHubLive(projectId: string) {
     [projectId, qc],
   );
 }
+
+export const useGitHubOrgs = (enabled = true) =>
+  useQuery({ queryKey: ['github', 'orgs'] as const, queryFn: githubApi.orgs, enabled, staleTime: 5 * 60_000 });

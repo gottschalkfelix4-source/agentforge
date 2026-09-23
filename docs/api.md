@@ -75,7 +75,8 @@ repos with open PRs, 5 min otherwise; conditional requests via ETags stored in `
 | POST | /api/github/token | `{token}` (PAT, validated via `GET /user`) | GitHubStatus |
 | DELETE | /api/github | – | `{ok:true}` (deletes token, clears credentials in all workspaces) |
 | GET | /api/github/repos?q=&page= | – | GhRepo[] (user repos sorted by push date; `q` filters, `owner/name` finds exact) |
-| POST | /api/github/repos | `{name, private?, description?, org?}` | GhRepo (creates a repo) |
+| POST | /api/github/repos | `{name, private?, description?, org?, autoInit?}` | GhRepo (creates a repo; `autoInit` adds a README commit so it can be cloned right away; 409 `github_repo_exists` if taken) |
+| GET | /api/github/orgs | – | `{login, avatarUrl}[]` (organisations usable as repo owner) |
 | POST | /api/projects/:id/github/link | `{owner, name, setRemote?}` | `{repo: GhRepo, remoteSet}` – sets repoOwner/repoName (+ `origin`) |
 | GET | /api/projects/:id/github/pulls?state=open\|closed\|all | – | GhPull[] (ciState for open PRs) |
 | POST | /api/projects/:id/github/pulls | CreatePullRequest (base defaults to the repo's default branch) | GhPull |

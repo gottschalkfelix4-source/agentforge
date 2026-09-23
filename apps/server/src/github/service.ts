@@ -338,11 +338,39 @@ export class GitHubService {
     return hits.slice((page - 1) * 50, page * 50);
   }
 
-  async createRepo(input: { name: string; private?: boolean; description?: string | null; org?: string | null }): Promise<GhRepo> {
-    const body = { name: input.name, private: input.private ?? true, description: input.description ?? undefined, auto_init: false };
+  /** Organisations the user belongs to (candidates for "owner" when creating a repo). */
+  async listOrgs(): Promise<{ login: string; avatarUrl: string | null }[]> {
+    const raw = await this.api().get<{ login: string; avatar_url?: string }[]>('/user/orgs', { per_page: 100 });
+    return raw.map((o) => ({ login: o.login, avatarUrl: o.avatar_url ?? null }));
+  }
+
+  /**
+   * Creates a repository for the user or an org. `autoInit` adds an initial commit (README) so the repo can be
+   * cloned with a default branch right away — used when a new project starts from a fresh repo.
+   */
+  async createRepo(input: {
+    name: string;
+    private?: boolean;
+    description?: string | null;
+    org?: string | null;
+    autoInit?: boolean;
+  }): Promise<GhRepo> {
+    const body = {
+      name: input.name,
+      private: input.private ?? true,
+      description: input.description ?? undefined,
+      auto_init: input.autoInit ?? false,
+    };
     const path = input.org ? `/orgs/${enc(input.org)}/repos` : '/user/repos';
     this.repoCache = null;
-    return toRepo(await this.api().post<RawRepo>(path, body));
+    try {
+      return toRepo(await this.api().post<RawRepo>(path, body));
+    } catch (err) {
+      if (err instanceof HttpError && err.code === 'github_invalid' && /already exists/i.test(err.message)) {
+        throw new HttpError(409, 'github_repo_exists', `Ein Repository „${input.name}“ existiert dort bereits`);
+      }
+      throw err;
+    }
   }
 
   // ---- pulls / checks --------------------------------------------------------------

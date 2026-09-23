@@ -86,10 +86,18 @@ export async function githubRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post('/api/github/repos', async (req) => {
     const body = z
-      .object({ name: ghName, private: z.boolean().default(true), description: z.string().max(350).nullish(), org: ghName.nullish() })
+      .object({
+        name: ghName,
+        private: z.boolean().default(true),
+        description: z.string().max(350).nullish(),
+        org: ghName.nullish(),
+        autoInit: z.boolean().default(false),
+      })
       .parse(req.body);
     return gh.createRepo(body);
   });
+
+  app.get('/api/github/orgs', async () => gh.listOrgs());
 
   /** Link a project to a repo: stores owner/name and points `origin` at it (if the workspace is a git repo). */
   app.post<P>('/api/projects/:id/github/link', async (req) => {
