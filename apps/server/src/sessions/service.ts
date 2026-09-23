@@ -173,9 +173,10 @@ export class SessionStore {
         case 'message.done':
           // The done event carries the full text; drop the streamed deltas to keep the log small.
           this.db.run(
-            "DELETE FROM session_events WHERE session_id = ? AND type = 'message.delta' AND json_extract(payload_json, '$.id') = ?",
+            "DELETE FROM session_events WHERE session_id = ? AND type = 'message.delta' AND json_extract(payload_json, '$.id') = ? AND json_extract(payload_json, '$.role') = ?",
             sessionId,
             e.id,
+            e.role,
           );
           break;
         case 'tool.done':

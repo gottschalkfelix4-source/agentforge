@@ -261,7 +261,8 @@ function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
     }
     case 'message.delta':
     case 'message.done': {
-      const key = `msg:${ev.id}`;
+      // Keyed by role too: some agents (claude-agent-acp) use one messageId for both thinking and answer.
+      const key = `msg:${ev.role}:${ev.id}`;
       const pos = d.find(key);
       if (!pos) {
         const done = ev.type === 'message.done';

@@ -239,3 +239,21 @@ describe('thought timing', () => {
     expect(m).toMatchObject({ done: true, startedAt: 2_000, endedAt: 4_000 });
   });
 });
+
+describe('thought and answer sharing one message id (claude-agent-acp)', () => {
+  it('keeps the answer as its own assistant message', () => {
+    const at = (event: AgentEvent, seq: number): SessionEventRecord => ({ seq, ts: new Date(seq * 1000).toISOString(), event });
+    const s = ingest(emptyTranscript(), [
+      at({ type: 'user.message', id: 'u', text: 'test' }, 1),
+      at({ type: 'message.delta', id: 'm1', role: 'thought', text: 'Der Nutzer testet.' }, 2),
+      at({ type: 'message.done', id: 'm1', role: 'thought', text: 'Der Nutzer testet.' }, 3),
+      at({ type: 'message.delta', id: 'm1', role: 'assistant', text: 'Got it — ' }, 4),
+      at({ type: 'message.done', id: 'm1', role: 'assistant', text: 'Got it — test received.' }, 5),
+    ], { settle: true });
+    const msgs = s.turns[0]!.items.filter((i) => i.kind === 'message') as MessageItem[];
+    expect(msgs.map((m) => [m.role, m.text])).toEqual([
+      ['thought', 'Der Nutzer testet.'],
+      ['assistant', 'Got it — test received.'],
+    ]);
+  });
+});
