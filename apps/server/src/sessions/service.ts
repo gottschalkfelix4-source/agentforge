@@ -15,6 +15,7 @@ import { AGENTFORGE_MCP_NAME, getAgentManifest } from '@vibe/shared';
 import { ulid } from 'ulid';
 import { buildStructuredLaunch } from '../agents/launch.js';
 import type { AppContext } from '../app-context.js';
+import { githubService } from '../github/service.js';
 import { nowIso, type Db } from '../db/index.js';
 import { bus } from '../events.js';
 import { providerRepo } from '../routes/providers.js';
@@ -334,7 +335,7 @@ export class SessionService {
       command: launch.command,
       args: launch.args,
       cwd: row.cwd,
-      env: launch.env,
+      env: this.withGitHubToken(row.agent_id, launch.env),
       // Provider sessions: the model is part of the launch (env/config); the agent's own ids don't apply.
       model: this.providerModels(row) ? launch.model : ((resume ? row.current_model : null) ?? launch.model),
       mode: resume ? row.current_mode : null,
@@ -367,6 +368,16 @@ export class SessionService {
     );
     for (const r of stale) this.syncProviderModels(r.id);
     return this.store.list(projectId);
+  }
+
+  /**
+   * GH_TOKEN for the `gh` CLI (process env only, like terminals). Not for Copilot: it would prefer our token
+   * over its own login, which usually lacks Copilot access.
+   */
+  private withGitHubToken(agentId: string, env: Record<string, string>): Record<string, string> {
+    if (agentId === 'copilot' || env.GH_TOKEN) return env;
+    const token = githubService(this.ctx).getToken();
+    return token ? { ...env, GH_TOKEN: token } : env;
   }
 
   /** Stores the provider model list/selection on the row so the browser sees it with the session. */

@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Bot, FileText, Pin, PinOff, Plus, Search, StickyNote, Trash2 } from 'lucide-react';
-import type { Note } from '@vibe/shared';
+import { Bot, FileText, Pin, PinOff, Plus, Search, Sparkles, StickyNote, Trash2 } from 'lucide-react';
+import { AGENTFORGE_SECTION_START, agentsMdTemplate, claudeMdTemplate, upsertAgentforgeSection, type Note } from '@vibe/shared';
 import { api } from '@/lib/api';
 import { qk, useDir, useProject } from '@/lib/queries';
 import { cn, errorMessage } from '@/lib/utils';
@@ -117,36 +117,20 @@ function NoteEditor({ projectId, note, onDeleted }: { projectId: string; note: N
 // ---- AGENTS.md / CLAUDE.md ------------------------------------------------------------------
 
 function template(name: SpecialFile, projectName: string): string {
-  const intro =
-    name === 'CLAUDE.md'
-      ? 'Diese Datei gibt Claude Code Kontext zu diesem Projekt. Sie wird bei jeder Sitzung automatisch gelesen.'
-      : 'Anweisungen für Coding-Agents (Codex, Gemini, OpenCode, …), die in diesem Repository arbeiten.';
-  return `# ${projectName}
+  return name === 'CLAUDE.md' ? claudeMdTemplate(projectName) : agentsMdTemplate(projectName);
+}
 
-${intro}
-
-## Projektüberblick
-- Was macht das Projekt? Für wen?
-- Wichtige Verzeichnisse: \`src/\` …
-
-## Setup & Befehle
-- Abhängigkeiten installieren: \`npm install\`
-- Entwicklungsserver: \`npm run dev\`
-- Tests: \`npm test\`
-- Lint/Format: \`npm run lint\`
-
-## Code-Stil & Konventionen
-- Sprache/Framework, Formatierung, Benennung
-- Bevorzugte Bibliotheken und Muster
-
-## Arbeitsweise
-- Kleine, fokussierte Änderungen; Tests ergänzen, wenn sinnvoll
-- Vor dem Commit: Tests und Linter ausführen
-- Keine Secrets committen
-
-## Hinweise
-- Bekannte Stolperfallen, externe Dienste, Umgebungsvariablen
-`;
+/** AGENTS.md: insert/refresh the Agentforge section; CLAUDE.md: import AGENTS.md. Returns null if nothing to do. */
+function upgraded(name: SpecialFile, content: string): string | null {
+  if (name === 'AGENTS.md') {
+    const next = upsertAgentforgeSection(content);
+    return next === content ? null : next;
+  }
+  if (/^@AGENTS\.md\s*$/m.test(content)) return null;
+  const lines = content.split('\n');
+  const at = lines[0]?.startsWith('# ') ? 1 : 0;
+  lines.splice(at, 0, ...(at ? ['', '@AGENTS.md'] : ['@AGENTS.md', '']));
+  return lines.join('\n');
 }
 
 function WorkspaceFileEditor({ projectId, name, exists }: { projectId: string; name: SpecialFile; exists: boolean }) {
@@ -190,13 +174,31 @@ function WorkspaceFileEditor({ projectId, name, exists }: { projectId: string; n
     }
   };
 
+  const upgrade = content !== null ? upgraded(name, content) : null;
+  const applyUpgrade = () => {
+    if (upgrade === null) return;
+    setContent(upgrade);
+    schedule(upgrade);
+    toast.success(name === 'AGENTS.md' ? 'Agentforge-Abschnitt aktualisiert' : 'AGENTS.md eingebunden');
+  };
+
   const header = (
     <div className="flex items-center gap-2">
       <Bot className="size-4 text-brand" />
       <span className="font-mono text-sm font-semibold">{name}</span>
       <span className="text-xs text-muted-foreground">im Workspace-Stammverzeichnis</span>
       {content !== null && (
-        <span className="ml-auto">
+        <span className="ml-auto flex items-center gap-2">
+          {upgrade !== null && (
+            <Button size="sm" variant="outline" onClick={applyUpgrade}>
+              <Sparkles />
+              {name === 'AGENTS.md'
+                ? content.includes(AGENTFORGE_SECTION_START)
+                  ? 'Agentforge-Abschnitt aktualisieren'
+                  : 'Agentforge-Abschnitt einfügen'
+                : 'AGENTS.md einbinden'}
+            </Button>
+          )}
           <SaveIndicator state={state} />
         </span>
       )}
@@ -211,8 +213,8 @@ function WorkspaceFileEditor({ projectId, name, exists }: { projectId: string; n
           <p>
             <span className="font-mono">{name}</span> existiert noch nicht.{' '}
             {name === 'CLAUDE.md'
-              ? 'Claude Code liest diese Datei automatisch und nutzt sie als Projektkontext.'
-              : 'Codex, Gemini CLI, OpenCode und andere Agents lesen AGENTS.md als Projektanweisungen.'}
+              ? 'Claude Code liest diese Datei automatisch. Die Vorlage bindet AGENTS.md ein, damit alle Agents dieselben Regeln haben.'
+              : 'Codex, OpenCode, Gemini CLI und andere Agents lesen AGENTS.md automatisch. Die Vorlage beschreibt alle Agentforge-Funktionen (Workspace, Vorschau, Browser, Board-Tools, Git, Rückfragen) – ergänze nur noch die Projektdetails.'}
           </p>
           <div>
             <Button variant="brand" size="sm" disabled={creating} onClick={() => void create()}>
