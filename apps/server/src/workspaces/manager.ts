@@ -265,6 +265,7 @@ export class WorkspaceManager {
       const ws = this.row(projectId);
       this.dropClient(projectId);
       if (ws?.container_id) await this.orch.remove(ws.container_id);
+      await this.orch.removeByProject(projectId);
       if (ws) rmSync(this.orch.localPath('generated', ws.id), { recursive: true, force: true });
       if (deleteFiles) rmSync(this.orch.localPath('projects', projectId), { recursive: true, force: true });
     });

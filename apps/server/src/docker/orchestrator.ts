@@ -256,6 +256,15 @@ export class Orchestrator {
     }
   }
 
+  /** Removes every managed container of a project (also orphans the database no longer knows about). */
+  async removeByProject(projectId: string) {
+    const list = await this.docker.listContainers({
+      all: true,
+      filters: { label: [`${MANAGED_LABEL}=true`, `vibe.project=${projectId}`] },
+    });
+    for (const c of list) await this.remove(c.Id);
+  }
+
   /** Where the app can reach the container's wsd. */
   async wsdEndpoint(containerId: string): Promise<WsdEndpoint> {
     const info = await this.inspect(containerId);
