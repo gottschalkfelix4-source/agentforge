@@ -257,3 +257,14 @@ describe('thought and answer sharing one message id (claude-agent-acp)', () => {
     ]);
   });
 });
+
+describe('turn start time', () => {
+  it('takes the time of the user message (drives the thinking timer)', () => {
+    const s = ingest(emptyTranscript(), [
+      { seq: 1, ts: new Date(7_000).toISOString(), event: { type: 'user.message', id: 'u', text: 'Hi' } },
+      { seq: 2, ts: new Date(7_050).toISOString(), event: { type: 'turn.start' } },
+    ], { settle: true });
+    expect(s.turns).toHaveLength(1);
+    expect(s.turns[0]!.startedAt).toBe(7_000);
+  });
+});

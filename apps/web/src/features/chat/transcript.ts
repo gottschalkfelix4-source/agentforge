@@ -97,6 +97,8 @@ export interface Turn {
   usage: Usage | null;
   done: boolean;
   stopReason: string | null;
+  /** Event time (ms) the turn started — drives the "Denkt nach…" timer before the first output. */
+  startedAt?: number;
 }
 
 export interface SessionInfo {
@@ -240,11 +242,13 @@ function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
       const reuse = cur && !cur.done && cur.items.length === 0;
       const ti = reuse ? d.s.turns.length - 1 : d.newTurn();
       d.add({ kind: 'user', key, id: ev.id, text: ev.text, images: ev.images }, ti);
+      if (ts !== undefined) d.turn(ti).startedAt ??= ts;
       return;
     }
     case 'turn.start': {
       const cur = d.s.turns[d.s.turns.length - 1];
-      if (!cur || cur.done) d.newTurn();
+      const ti = !cur || cur.done ? d.newTurn() : d.s.turns.length - 1;
+      if (ts !== undefined) d.turn(ti).startedAt ??= ts;
       return;
     }
     case 'turn.done': {

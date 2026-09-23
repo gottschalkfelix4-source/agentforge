@@ -35,6 +35,7 @@ import { ensureMonacoTheme } from './Markdown';
 import { NewSession } from './NewSession';
 import { SessionList } from './SessionList';
 import { dropSessionStream, useTranscript } from './session-stream';
+import { ThinkingIndicator } from './ThoughtBlock';
 import { TranscriptView, UsageLine, UserBubble } from './TranscriptView';
 import type { SessionInfo, TranscriptState } from './transcript';
 import { AgentAvatar, StatusDot, STATUS_LABEL, usePersistentState } from './util';
@@ -100,6 +101,8 @@ interface PendingPrompt {
   text: string;
   images: ComposerImage[];
   userCount: number;
+  /** Local send time — starts the "Denkt nach…" timer before the server echo arrives. */
+  sentAt: number;
 }
 
 function countUserItems(s: TranscriptState): number {
@@ -161,7 +164,7 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
   };
 
   const send = async (text: string, images: ComposerImage[]) => {
-    setPending({ text, images, userCount });
+    setPending({ text, images, userCount, sentAt: Date.now() });
     try {
       await actions.prompt(
         text,
@@ -188,10 +191,18 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
 
   const run = (p: Promise<unknown>) => void p.catch((err) => toast.error(errorMessage(err)));
 
+  const lastTurn = state.turns[state.turns.length - 1];
+  const awaitingFirstOutput =
+    status !== 'starting' &&
+    status !== 'awaiting_approval' &&
+    (!!pending || (running && !!lastTurn && !lastTurn.done && !lastTurn.items.some((i) => i.kind !== 'user')));
+
   const footer = (
     <>
       {pending && <UserBubble text={pending.text} images={pending.images} pending />}
-      {(running || status === 'starting' || pending) && (
+      {awaitingFirstOutput ? (
+        <ThinkingIndicator since={pending ? pending.sentAt : lastTurn?.startedAt} />
+      ) : (running || status === 'starting') && (
         <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin text-brand" />
           {status === 'starting' ? 'Agent startet…' : status === 'awaiting_approval' ? 'Wartet auf deine Freigabe…' : 'Arbeitet…'}

@@ -100,3 +100,17 @@ export function ThoughtView({ projectId, text, done, durationMs, startedAt, ende
     </div>
   );
 }
+
+/**
+ * Shown right after sending until the agent's first output (thought, text or tool) arrives —
+ * models often think for a while before anything is streamed.
+ */
+export function ThinkingIndicator({ since }: { since?: number }) {
+  const elapsed = useElapsed(true, since);
+  return (
+    <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground" role="status">
+      <Brain className="size-3.5 text-brand" />
+      <span className="thinking-shimmer tabular-nums">Denkt nach…{elapsed >= 1000 ? ` ${formatDuration(elapsed)}` : ''}</span>
+    </div>
+  );
+}
