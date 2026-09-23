@@ -70,6 +70,7 @@ Releases: Tag `vX.Y.Z` pushen → GitHub Actions baut und veröffentlicht beide 
 ## Sicherheit
 
 Die App braucht den Docker-Socket (entspricht Root auf dem Host). Workspaces werden ausschließlich aus einem
-festen, gehärteten Template erzeugt (keine Privilegien, `cap-drop ALL` + Minimum, `no-new-privileges`,
-Ressourcenlimits) und tragen das Label `vibe.managed=true`; andere Container werden nie angefasst.
+festen Template erzeugt und tragen das Label `vibe.managed=true`; andere Container werden nie angefasst.
+**Workspaces laufen privilegiert** mit eigenem Docker-Daemon (Docker-in-Docker), damit Agents Container nutzen
+können – ein Agent kann damit theoretisch Root-Zugriff auf den Host erlangen. Den Host-Docker sehen Workspaces nicht.
 Details und Empfehlungen (VPN/Reverse Proxy, Abo-Logins): [docs/security.md](docs/security.md).

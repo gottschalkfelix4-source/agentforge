@@ -5,7 +5,7 @@ import { ulid } from 'ulid';
 import type { Config } from '../config.js';
 import type { Db } from '../db/index.js';
 import { bus } from '../events.js';
-import type { Orchestrator } from '../docker/orchestrator.js';
+import { DOCKER_LABEL, type Orchestrator } from '../docker/orchestrator.js';
 import { WsdClient } from './wsd-client.js';
 
 interface WorkspaceRow {
@@ -120,7 +120,8 @@ export class WorkspaceManager {
         // Project files, agent logins and caches are bind mounts, so nothing is lost.
         if (info && !info.State.Running) {
           const wantedId = await this.orch.imageId(this.cfg.workspaceImage);
-          if (wantedId && info.Image !== wantedId) {
+          const withoutDocker = info.Config.Labels?.[DOCKER_LABEL] !== '1';
+          if ((wantedId && info.Image !== wantedId) || withoutDocker) {
             this.log.info(`Workspace ${projectId}: neues Image ${this.cfg.workspaceImage} – Container wird neu erstellt`);
             await this.orch.remove(containerId!);
             this.db.run('UPDATE workspaces SET container_id = NULL, image = ? WHERE id = ?', this.cfg.workspaceImage, ws.id);
@@ -266,6 +267,7 @@ export class WorkspaceManager {
       this.dropClient(projectId);
       if (ws?.container_id) await this.orch.remove(ws.container_id);
       await this.orch.removeByProject(projectId);
+      await this.orch.removeDockerVolume(projectId).catch((err: Error) => this.log.warn(`Docker-Volume von ${projectId}: ${err.message}`));
       if (ws) rmSync(this.orch.localPath('generated', ws.id), { recursive: true, force: true });
       if (deleteFiles) rmSync(this.orch.localPath('projects', projectId), { recursive: true, force: true });
     });

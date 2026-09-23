@@ -90,6 +90,16 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
+# Docker Engine for projects with "Docker im Workspace" (daemon only starts when AGENTFORGE_DOCKER=1;
+# the workspace then runs privileged with its own /var/lib/docker volume).
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+ && chmod a+r /etc/apt/keyrings/docker.asc \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+      > /etc/apt/sources.list.d/docker.list \
+ && apt-get update && apt-get install -y --no-install-recommends \
+      docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin iptables \
+ && rm -rf /var/lib/apt/lists/*
+
 # uv / uvx (Python)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
@@ -97,6 +107,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 RUN userdel -r node 2>/dev/null || true; groupdel node 2>/dev/null || true; \
     groupadd -g 1000 coder \
  && useradd -m -u 1000 -g 1000 -s /bin/bash coder \
+ && (getent group docker >/dev/null || groupadd docker) && usermod -aG docker coder \
  && git config --system init.defaultBranch main \
  && git config --system --add safe.directory '*' \
  && git config --system pull.rebase false

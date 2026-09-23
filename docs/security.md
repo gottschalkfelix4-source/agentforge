@@ -19,14 +19,23 @@ Begrenzungen im Code:
 - Ein Socket-Proxy (z. B. `tecnativa/docker-socket-proxy`) bringt wenig: Agentforge braucht Container-Create
   mit Bind-Mounts, was praktisch wieder Root-Zugriff ist.
 
-## Workspace-Härtung
+## Workspaces: privilegiert mit eigenem Docker
 
-Jeder Workspace-Container läuft mit:
-- `Privileged: false`, `CapDrop: ALL` + nur `CHOWN, SETUID, SETGID, DAC_OVERRIDE, Fgottschalkfelix4-source, KILL, NET_BIND_SERVICE`
-- `no-new-privileges`, `PidsLimit 4096`, CPU- und RAM-Limit (`WORKSPACE_CPUS`, `WORKSPACE_MEMORY_MB`)
-- Prozesse als unprivilegierter Benutzer `coder` (UID/GID per `PUID`/`PGID`)
+**Jeder Workspace-Container läuft privilegiert (`Privileged: true`)** und startet darin einen eigenen Docker-Daemon
+(Docker-in-Docker), damit Agents Container bauen und starten können. Das ist eine bewusste Entscheidung:
+
+- **Folge:** Wer in einem Workspace Docker bedienen kann – also auch jeder Agent – kann sich über privilegierte
+  Container Root-Zugriff auf den Host verschaffen. Die Isolation zwischen Workspace und Unraid-Host ist damit
+  aufgehoben; sie schützt nur noch vor Versehen, nicht vor Absicht. Lass Agents deshalb nur mit vertrauenswürdigen
+  Aufgaben und Modellen arbeiten und nutze Freigaben (Approval-Modi) für Befehle.
+- Der Workspace bekommt **nicht** den Docker-Socket des Hosts: Container, Images und Volumes des Hosts (und
+  anderer Projekte) sind darüber nicht sichtbar. Jeder Workspace hat sein eigenes Docker-Volume
+  (`agentforge-docker-<projekt>` → `/var/lib/docker`), das beim Löschen des Projekts mit entfernt wird.
+- Weiterhin gelten: `PidsLimit 4096`, CPU- und RAM-Limit (`WORKSPACE_CPUS`, `WORKSPACE_MEMORY_MB`), Agents und
+  Terminals laufen als unprivilegierter Benutzer `coder` (UID/GID per `PUID`/`PGID`, Mitglied der Gruppe `docker`),
+  der Docker-Daemon läuft als root.
 - Mounts: nur das eigene Projekt (`/workspace`), gemeinsame Agent-Logins, Tool-Verzeichnis und Caches,
-  Workspace-Token read-only. **Kein** Docker-Socket, kein Zugriff auf andere Projekte oder die Datenbank.
+  Workspace-Token read-only. Kein Zugriff auf andere Projekte oder die Datenbank.
 - Eigenes Bridge-Netz `agentforge-net`; der Workspace-Daemon ist nur mit einem zufälligen Token pro Workspace
   erreichbar. Workspaces haben normalen Internetzugang (für npm, git, APIs) und erreichen den Host über
   `host.docker.internal`.

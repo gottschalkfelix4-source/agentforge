@@ -84,5 +84,18 @@ if [ -f "$TOKEN_FILE" ] && ! gosu coder test -r "$TOKEN_FILE"; then
   log "copied unreadable token file to ${WSD_TOKEN_FILE}"
 fi
 
+# --- optional Docker daemon ("Docker im Workspace", container runs privileged) ------------
+if [ "${AGENTFORGE_DOCKER:-0}" = "1" ] && command -v dockerd >/dev/null 2>&1; then
+  log "starting docker daemon"
+  mkdir -p /var/lib/docker
+  touch /var/log/dockerd.log && chmod 644 /var/log/dockerd.log
+  dockerd --group docker >>/var/log/dockerd.log 2>&1 &
+  for _ in $(seq 1 30); do
+    [ -S /var/run/docker.sock ] && break
+    sleep 1
+  done
+  if [ -S /var/run/docker.sock ]; then log "docker ready"; else log "docker did not start – see /var/log/dockerd.log"; fi
+fi
+
 cd "$WSD_ROOT"
 exec gosu coder tini -- "${WSD_CMD[@]}"

@@ -6,6 +6,8 @@ import { AGENT_MANIFESTS, WSD_PORT } from '@vibe/shared';
 import type { Config } from '../config.js';
 
 export const MANAGED_LABEL = 'vibe.managed';
+/** Set on workspaces created with Docker-in-Docker; older containers are recreated on their next start. */
+export const DOCKER_LABEL = 'vibe.docker';
 
 export interface WorkspaceSpec {
   workspaceId: string;
@@ -24,7 +26,7 @@ export interface WsdEndpoint {
 
 /**
  * Creates and controls workspace containers. Only ever touches containers carrying the
- * `vibe.managed=true` label, and only builds them from the fixed, hardened template below.
+ * `vibe.managed=true` label, and only builds them from the fixed template below (privileged, own dockerd).
  */
 export class Orchestrator {
   readonly docker: Docker;
@@ -181,6 +183,8 @@ export class Orchestrator {
     if (this.cfg.tz) env.push(`TZ=${this.cfg.tz}`);
     if (spec.gitUrl) env.push(`WSD_INIT_GIT_URL=${spec.gitUrl}`);
     if (spec.projectName) env.push(`VIBE_PROJECT=${spec.projectName}`);
+    // Every workspace runs its own Docker daemon (see entrypoint.sh).
+    env.push('AGENTFORGE_DOCKER=1');
     // Docker Desktop on Windows: bind mounts deliver no inotify events, so dev-server watchers must poll.
     if (!this.cfg.hostDataPath.startsWith('/')) env.push('CHOKIDAR_USEPOLLING=true', 'WATCHPACK_POLLING=true');
 
@@ -194,24 +198,27 @@ export class Orchestrator {
         [MANAGED_LABEL]: 'true',
         'vibe.project': spec.projectId,
         'vibe.workspace': spec.workspaceId,
+        [DOCKER_LABEL]: '1',
       },
       ExposedPorts: { [portKey]: {} },
       HostConfig: {
-        Mounts: binds.map((b) => ({
-          Type: 'bind' as const,
-          Source: this.hostPath(...b.local),
-          Target: b.target,
-          ReadOnly: b.readOnly ?? false,
-        })),
+        Mounts: [
+          ...binds.map((b) => ({
+            Type: 'bind' as const,
+            Source: this.hostPath(...b.local),
+            Target: b.target,
+            ReadOnly: b.readOnly ?? false,
+          })),
+          // Docker data needs a real filesystem (overlay2 does not work on /mnt/user or on the overlay rootfs).
+          { Type: 'volume' as const, Source: this.dockerVolume(spec.projectId), Target: '/var/lib/docker' },
+        ],
         NetworkMode: this.cfg.networkName,
         PortBindings: this.cfg.publishWsd ? { [portKey]: [{ HostIp: '127.0.0.1', HostPort: '' }] } : undefined,
         ExtraHosts: ['host.docker.internal:host-gateway'],
         RestartPolicy: { Name: 'unless-stopped' },
-        Privileged: false,
-        CapDrop: ['ALL'],
-        // Needed by the entrypoint (uid remap, chown, gosu) and by normal dev tooling.
-        CapAdd: ['CHOWN', 'SETUID', 'SETGID', 'DAC_OVERRIDE', 'FOWNER', 'KILL', 'NET_BIND_SERVICE'],
-        SecurityOpt: ['no-new-privileges'],
+        // Privileged so the workspace can run its own Docker daemon (Docker-in-Docker) — an explicit
+        // product decision: agents need Docker. See docs/security.md for the implications.
+        Privileged: true,
         PidsLimit: 4096,
         NanoCpus: spec.cpuLimit ? Math.round(spec.cpuLimit * 1e9) : undefined,
         Memory: spec.memLimitMb ? spec.memLimitMb * 1024 * 1024 : undefined,
@@ -251,6 +258,19 @@ export class Orchestrator {
     try {
       const { c } = await this.managed(containerId);
       await c.remove({ force: true });
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode !== 404) throw err;
+    }
+  }
+
+  dockerVolume(projectId: string) {
+    return `agentforge-docker-${projectId.toLowerCase()}`;
+  }
+
+  /** Deletes the project's Docker-in-Docker data volume (images, containers, volumes of its daemon). */
+  async removeDockerVolume(projectId: string) {
+    try {
+      await this.docker.getVolume(this.dockerVolume(projectId)).remove({ force: true });
     } catch (err) {
       if ((err as { statusCode?: number }).statusCode !== 404) throw err;
     }
