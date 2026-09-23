@@ -116,6 +116,19 @@ export class WorkspaceManager {
       try {
         let containerId = ws.container_id;
         let info = containerId ? await this.orch.inspect(containerId) : null;
+        // A stopped workspace moves to the current image (new tag or a newer pull) when it starts.
+        // Project files, agent logins and caches are bind mounts, so nothing is lost.
+        if (info && !info.State.Running) {
+          const wantedId = await this.orch.imageId(this.cfg.workspaceImage);
+          if (wantedId && info.Image !== wantedId) {
+            this.log.info(`Workspace ${projectId}: neues Image ${this.cfg.workspaceImage} – Container wird neu erstellt`);
+            await this.orch.remove(containerId!);
+            this.db.run('UPDATE workspaces SET container_id = NULL, image = ? WHERE id = ?', this.cfg.workspaceImage, ws.id);
+            ws.image = this.cfg.workspaceImage;
+            containerId = null;
+            info = null;
+          }
+        }
         if (!info) {
           this.setStatus(projectId, 'creating', 'Workspace wird erstellt …');
           await this.orch.ensureImage(ws.image, (progress) =>

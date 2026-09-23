@@ -42,6 +42,15 @@ export class Orchestrator {
     }
   }
 
+  /** Local image id (sha256:…) of a tag, or null when the image is not present. */
+  async imageId(image: string): Promise<string | null> {
+    try {
+      return (await this.docker.getImage(image).inspect()).Id;
+    } catch {
+      return null;
+    }
+  }
+
   async imagePresent(image: string): Promise<boolean> {
     try {
       await this.docker.getImage(image).inspect();

@@ -13,6 +13,12 @@ const settingsBody = z.object({
   workspaceIdleMinutes: z.number().int().min(0).max(7 * 24 * 60).nullable(),
 });
 
+/** True for references with a registry host (e.g. `ghcr.io/owner/img:tag`), false for local tags like `img:dev`. */
+export function isRegistryImage(ref: string): boolean {
+  const first = ref.split('/')[0] ?? '';
+  return ref.includes('/') && (first.includes('.') || first.includes(':') || first === 'localhost');
+}
+
 export async function systemRoutes(app: FastifyInstance, ctx: AppContext) {
   const log = { info: (m: string) => app.log.info(m), warn: (m: string) => app.log.warn(m) };
   const disk = new DiskUsageCache(ctx.cfg.dataDir);
@@ -20,6 +26,22 @@ export async function systemRoutes(app: FastifyInstance, ctx: AppContext) {
   const idle = new IdleStopper({ db: ctx.db, workspaces: ctx.workspaces, log });
   idle.start();
   app.addHook('onClose', async () => idle.stopTimer());
+
+  // Keep the workspace image current: pull shortly after start and every 6 h (registry images only —
+  // locally built tags can't be pulled). Stopped workspaces switch to the new image on their next start.
+  if (isRegistryImage(ctx.cfg.workspaceImage)) {
+    const autoPull = async () => {
+      if ((await ctx.orch.ping()).ok) puller.start(log);
+    };
+    const first = setTimeout(() => void autoPull(), 30_000);
+    const every = setInterval(() => void autoPull(), 6 * 60 * 60 * 1000);
+    first.unref();
+    every.unref();
+    app.addHook('onClose', async () => {
+      clearTimeout(first);
+      clearInterval(every);
+    });
+  }
 
   const settings = () => ({
     workspaceIdleMinutes: effectiveIdleMinutes(ctx.db),

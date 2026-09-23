@@ -142,3 +142,13 @@ describe('diskUsage', () => {
     expect(limited.partial).toBe(true);
   });
 });
+
+describe('isRegistryImage', () => {
+  it('distinguishes registry references from local tags', async () => {
+    const { isRegistryImage } = await import('../routes/system.js');
+    expect(isRegistryImage('ghcr.io/gottschalkfelix4-source/agentforge-workspace:latest')).toBe(true);
+    expect(isRegistryImage('localhost:5000/ws:dev')).toBe(true);
+    expect(isRegistryImage('agentforge-workspace:dev')).toBe(false);
+    expect(isRegistryImage('library/ubuntu')).toBe(false);
+  });
+});
