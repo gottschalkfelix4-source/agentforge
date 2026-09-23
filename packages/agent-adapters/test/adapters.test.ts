@@ -63,6 +63,7 @@ describe('AcpAdapter', () => {
     // Messages before the tool call are closed with message.done.
     const thought = events.find((e) => e.type === 'message.done' && e.role === 'thought');
     expect(thought).toMatchObject({ text: 'Ich denke nach.' });
+    expect((thought as { durationMs?: number }).durationMs).toBeGreaterThanOrEqual(0);
     const msg = events.find((e) => e.type === 'message.done' && e.role === 'assistant');
     expect(msg).toMatchObject({ text: 'Hallo Welt' });
     expect(events.find((e) => e.type === 'plan')).toEqual({
@@ -181,7 +182,9 @@ describe('CodexAppServerAdapter', () => {
     await h.prompt('los');
     const req = await waitFor('approval.request');
     expect(req).toMatchObject({ toolId: 'cmd_1', kind: 'exec', title: 'Befehl ausführen: npm test' });
-    expect(events).toContainEqual({ type: 'message.done', id: 'rs_1', role: 'thought', text: 'Plane Schritte' });
+    const codexThought = events.find((e) => e.type === 'message.done' && e.role === 'thought');
+    expect(codexThought).toMatchObject({ id: 'rs_1', text: 'Plane Schritte' });
+    expect((codexThought as { durationMs?: number }).durationMs).toBeGreaterThanOrEqual(0);
     // raw reasoning deltas are ignored once summary deltas streamed
     expect(events.filter((e) => e.type === 'message.delta' && e.role === 'thought').map((e) => (e as { text: string }).text).join('')).toBe('Plane Schritte');
     expect(events).toContainEqual({ type: 'plan', entries: [{ text: 'Tests ausführen', status: 'in_progress' }, { text: 'Fixen', status: 'pending' }] });
@@ -195,7 +198,7 @@ describe('CodexAppServerAdapter', () => {
     expect(events).toContainEqual(expect.objectContaining({ type: 'tool.done', id: 'fc_1', status: 'completed' }));
     const diff = events.find((e) => e.type === 'diff.turn') as Extract<AgentEvent, { type: 'diff.turn' }>;
     expect(diff.files.map((f) => f.path)).toEqual(['src/a.ts', 'new.txt']);
-    expect(events).toContainEqual({ type: 'message.done', id: 'msg_1', role: 'assistant', text: 'Fertig!' });
+    expect(events).toContainEqual(expect.objectContaining({ type: 'message.done', id: 'msg_1', role: 'assistant', text: 'Fertig!' }));
     expect(events).toContainEqual({ type: 'usage', inputTokens: 200, outputTokens: 100, contextPercent: 30 });
     expect(stderr.find((l) => l.startsWith('turn/start'))).toContain('"approvalPolicy":"untrusted"');
   });

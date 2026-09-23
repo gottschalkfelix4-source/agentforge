@@ -156,6 +156,7 @@ export class WorkspaceManager {
           await this.orch.start(containerId!);
         }
         await this.connect(projectId, ws.id, containerId!);
+        this.orch.ensureAgentDefaults();
         this.setStatus(projectId, 'running');
       } catch (err) {
         this.setStatus(projectId, 'error', (err as Error).message);

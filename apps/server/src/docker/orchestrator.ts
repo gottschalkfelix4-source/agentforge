@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import path from 'node:path';
 import Docker from 'dockerode';
@@ -125,6 +125,34 @@ export class Orchestrator {
     const file = path.join(dir, 'wsd-token');
     writeFileSync(file, token, { mode: 0o644 });
     chmodSync(file, 0o644);
+  }
+
+  /**
+   * Defaults in the shared agent config dirs. Claude Code: request API-side thinking summaries — recent
+   * models otherwise stream empty ("omitted") thinking blocks, so neither the chat nor the TUI could show
+   * the thought process. Existing user settings are merged, never overwritten.
+   */
+  ensureAgentDefaults() {
+    const dir = this.localPath('agent-home', 'claude');
+    const file = path.join(dir, 'settings.json');
+    let settings: Record<string, unknown> = {};
+    try {
+      settings = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return; // unreadable/invalid: leave it alone
+    }
+    if (settings.showThinkingSummaries !== undefined) return;
+    settings.showThinkingSummaries = true;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, JSON.stringify(settings, null, 2) + '\n', { mode: 0o644 });
+    // The app runs as root in its container; hand the file to the workspace user so Claude can update it.
+    if (process.platform !== 'win32') {
+      try {
+        chownSync(file, Number(this.cfg.puid ?? 1000), Number(this.cfg.pgid ?? 1000));
+      } catch {
+        /* not permitted — Claude can still read it */
+      }
+    }
   }
 
   async createContainer(spec: WorkspaceSpec): Promise<string> {

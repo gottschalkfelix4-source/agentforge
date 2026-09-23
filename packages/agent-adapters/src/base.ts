@@ -18,7 +18,7 @@ export abstract class BaseSession implements AgentSessionHandle {
   private readonly exitListeners = new Set<AgentExitListener>();
   private disposed = false;
   /** Open streamed messages by role (closed with message.done on role switch / tool / turn end). */
-  private readonly openMessages = new Map<'assistant' | 'thought', { id: string; text: string }>();
+  private readonly openMessages = new Map<'assistant' | 'thought', { id: string; text: string; startedAt: number }>();
   protected info: Omit<SessionInfo, 'type' | 'externalId'> = {};
   private lastInfo = '';
 
@@ -108,7 +108,7 @@ export abstract class BaseSession implements AgentSessionHandle {
     // A switch between thinking and answering closes the other message.
     this.closeMessage(role === 'assistant' ? 'thought' : 'assistant');
     if (!open) {
-      open = { id: id || newId(), text: '' };
+      open = { id: id || newId(), text: '', startedAt: Date.now() };
       this.openMessages.set(role, open);
     }
     open.text += text;
@@ -120,7 +120,7 @@ export abstract class BaseSession implements AgentSessionHandle {
     const open = this.openMessages.get(role);
     if (!open) return;
     this.openMessages.delete(role);
-    this.emit({ type: 'message.done', id: open.id, role, text: finalText ?? open.text });
+    this.emit({ type: 'message.done', id: open.id, role, text: finalText ?? open.text, durationMs: Date.now() - open.startedAt });
   }
 
   protected closeMessages() {

@@ -112,3 +112,33 @@
 .xterm .xterm-viewport {
   background-color: transparent !important;
 }
+
+/* "Denkt nach…" — soft shimmer while an agent is thinking */
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-muted-foreground) 0%,
+    var(--color-foreground) 45%,
+    var(--color-muted-foreground) 90%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 2.2s linear infinite;
+}
+@keyframes thinking-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-shimmer {
+    animation: none;
+    color: var(--color-muted-foreground);
+    background: none;
+  }
+}

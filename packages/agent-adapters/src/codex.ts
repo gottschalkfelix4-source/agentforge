@@ -87,6 +87,8 @@ export class CodexSession extends BaseSession {
   private readonly approvals = new Map<string, PendingApproval>();
   /** Reasoning items that already streamed summary text (raw deltas are then ignored). */
   private readonly reasoningSummary = new Set<string>();
+  /** Start time of reasoning items, for the thought duration when no deltas were streamed. */
+  private readonly reasoningStartedAt = new Map<string, number>();
   private turnErrorReported = false;
 
   constructor(opts: AgentStartOptions) {
@@ -326,6 +328,7 @@ export class CodexSession extends BaseSession {
   }
 
   private onItemStarted(item: cx.ThreadItem) {
+    if (item.type === 'reasoning') this.reasoningStartedAt.set(item.id, Date.now());
     switch (item.type) {
       case 'commandExecution': {
         const it = item as Extract<cx.ThreadItem, { type: 'commandExecution' }>;
@@ -415,10 +418,12 @@ export class CodexSession extends BaseSession {
   }
 
   private finishMessage(role: 'assistant' | 'thought', id: string, text: string) {
+    const started = this.reasoningStartedAt.get(id);
+    this.reasoningStartedAt.delete(id);
     if (this.openMessageId(role) === id) this.closeMessage(role, text);
     else if (text) {
       this.closeMessages();
-      this.emit({ type: 'message.done', id, role, text });
+      this.emit({ type: 'message.done', id, role, text, ...(started ? { durationMs: Date.now() - started } : {}) });
     }
   }
 
@@ -479,6 +484,7 @@ export class CodexSession extends BaseSession {
         input,
         approvalPolicy: this.policy,
         sandboxPolicy: { type: 'dangerFullAccess' },
+        summary: 'detailed',
         ...(this.model ? { model: this.model } : {}),
       } satisfies cx.TurnStartParams);
       this.turnId = res?.turn?.id ?? this.turnId;

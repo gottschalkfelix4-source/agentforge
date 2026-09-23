@@ -106,6 +106,12 @@ async function main() {
     app.log.info(`Kein Web-Build unter ${webDist} – im Dev-Modus läuft die UI über Vite (:5173).`);
   }
 
+  try {
+    orch.ensureAgentDefaults();
+  } catch (err) {
+    app.log.warn(`Agent-Standardeinstellungen: ${(err as Error).message}`);
+  }
+
   const docker = await orch.ping();
   if (docker.ok) workspaces.startReconciler();
   else app.log.error(`Docker nicht erreichbar: ${docker.error}`);

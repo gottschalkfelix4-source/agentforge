@@ -30,6 +30,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { DiffList, DiffStat } from './DiffView';
 import { diffStats } from './diff';
 import { Markdown } from './Markdown';
+import { ThoughtView } from './ThoughtBlock';
 import type { ApprovalItem, MessageItem, ToolItem, TranscriptItem, TranscriptState, Turn, Usage } from './transcript';
 import { formatTokens } from './util';
 
@@ -92,27 +93,25 @@ function AssistantMessage({ item }: { item: MessageItem }) {
 }
 
 function ThoughtBlock({ item }: { item: MessageItem }) {
-  const [open, setOpen] = React.useState(false);
   const { projectId } = React.useContext(TranscriptCtx);
-  if (!item.text.trim()) return null;
   return (
-    <div className="text-[13px]">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="group flex cursor-pointer items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <Brain className={cn('size-3.5', !item.done && 'animate-pulse text-brand')} />
-        <span className={cn(!item.done && 'animate-pulse')}>{item.done ? 'Gedankengang' : 'Denkt nach…'}</span>
-        <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />
-      </button>
-      {open && (
-        <div className="mt-1.5 ml-1.5 border-l-2 border-border pl-3 text-muted-foreground italic">
-          <Markdown text={item.text} projectId={projectId} streaming={!item.done} className="text-[13px]" />
-        </div>
-      )}
-    </div>
+    <ThoughtView
+      projectId={projectId}
+      text={item.text}
+      done={item.done}
+      durationMs={item.durationMs}
+      startedAt={item.startedAt}
+      endedAt={item.endedAt}
+    />
   );
+}
+
+/** Agents that model thinking as a "think" tool call get the same thought block instead of a tool card. */
+function ThinkTool({ item }: { item: ToolItem }) {
+  const { projectId } = React.useContext(TranscriptCtx);
+  const done = item.status === 'completed' || item.status === 'failed';
+  const text = item.output.trim() ? item.output : item.title;
+  return <ThoughtView projectId={projectId} text={text} done={done} title={item.output.trim() ? item.title : undefined} />;
 }
 
 // ---- tools ------------------------------------------------------------------------------
@@ -429,7 +428,7 @@ const Row = React.memo(function Row({ item }: { item: TranscriptItem }) {
     case 'message':
       return item.role === 'thought' ? <ThoughtBlock item={item} /> : <AssistantMessage item={item} />;
     case 'tool':
-      return <ToolCard item={item} />;
+      return item.toolKind === 'think' ? <ThinkTool item={item} /> : <ToolCard item={item} />;
     case 'approval':
       return <ApprovalCard item={item} />;
     case 'error':

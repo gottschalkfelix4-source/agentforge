@@ -40,6 +40,11 @@ export interface MessageItem {
   role: 'assistant' | 'thought';
   text: string;
   done: boolean;
+  /** Event timestamps (ms) of the first delta and of completion — used for "Nachgedacht für N s". */
+  startedAt?: number;
+  endedAt?: number;
+  /** Duration reported by the agent adapter (survives history compaction). */
+  durationMs?: number;
 }
 
 export interface ToolItem {
@@ -225,7 +230,7 @@ function appendCapped(prev: string, chunk: string): { text: string; truncated: b
   return { text: text.slice(text.length - MAX_TOOL_OUTPUT), truncated: true };
 }
 
-function applyEvent(d: Draft, ev: AgentEvent) {
+function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
   switch (ev.type) {
     case 'user.message': {
       const key = `user:${ev.id}`;
@@ -250,7 +255,7 @@ function applyEvent(d: Draft, ev: AgentEvent) {
       // finalize streaming messages and dangling tools of this turn
       for (let i = 0; i < t.items.length; i++) {
         const it = t.items[i]!;
-        if (it.kind === 'message' && !it.done) t.items[i] = { ...it, done: true };
+        if (it.kind === 'message' && !it.done) t.items[i] = { ...it, done: true, endedAt: it.endedAt ?? ts };
       }
       return;
     }
@@ -259,15 +264,29 @@ function applyEvent(d: Draft, ev: AgentEvent) {
       const key = `msg:${ev.id}`;
       const pos = d.find(key);
       if (!pos) {
-        d.add({ kind: 'message', key, id: ev.id, role: ev.role, text: ev.text, done: ev.type === 'message.done' });
+        const done = ev.type === 'message.done';
+        d.add({
+          kind: 'message',
+          key,
+          id: ev.id,
+          role: ev.role,
+          text: ev.text,
+          done,
+          startedAt: ts,
+          endedAt: done ? ts : undefined,
+          durationMs: ev.type === 'message.done' ? ev.durationMs : undefined,
+        });
         return;
       }
       const m = d.item<MessageItem>(pos);
+      m.startedAt ??= ts;
       if (ev.type === 'message.delta') {
         m.text += ev.text;
       } else {
         if (ev.text) m.text = ev.text;
         m.done = true;
+        m.endedAt = ts;
+        if (ev.durationMs !== undefined) m.durationMs = ev.durationMs;
       }
       return;
     }
@@ -443,7 +462,8 @@ export function ingest(prev: TranscriptState, records: SessionEventRecord[], opt
       pendingCopied = true;
     }
     d.s.pending.delete(seq);
-    applyEvent(d, r.event);
+    const ts = Date.parse(r.ts);
+    applyEvent(d, r.event, Number.isFinite(ts) ? ts : undefined);
     d.s.applied++;
     d.s.lastSeq = seq;
   }

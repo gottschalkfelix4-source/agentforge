@@ -205,3 +205,37 @@ describe('transcript reducer', () => {
     expect((s.turns[0]!.items[1] as MessageItem).text.length).toBe(100);
   });
 });
+
+describe('thought timing', () => {
+  const at = (event: AgentEvent, seq: number, ms: number): SessionEventRecord => ({ seq, ts: new Date(ms).toISOString(), event });
+
+  it('records start/end timestamps of streamed thoughts', () => {
+    const s = ingest(emptyTranscript(), [
+      at({ type: 'user.message', id: 'u', text: 'Hi' }, 1, 1_000),
+      at({ type: 'message.delta', id: 't', role: 'thought', text: 'Hmm ' }, 2, 2_000),
+      at({ type: 'message.delta', id: 't', role: 'thought', text: 'ok' }, 3, 5_000),
+      at({ type: 'message.done', id: 't', role: 'thought', text: 'Hmm ok' }, 4, 9_000),
+    ], { settle: true });
+    const m = s.turns[0]!.items.find((i) => i.kind === 'message') as MessageItem;
+    expect(m).toMatchObject({ text: 'Hmm ok', done: true, startedAt: 2_000, endedAt: 9_000 });
+  });
+
+  it('keeps the adapter-reported duration when only message.done survived compaction', () => {
+    const s = ingest(emptyTranscript(), [
+      at({ type: 'user.message', id: 'u', text: 'Hi' }, 1, 1_000),
+      at({ type: 'message.done', id: 't', role: 'thought', text: 'Plan', durationMs: 12_000 }, 5, 13_000),
+    ], { settle: true });
+    const m = s.turns[0]!.items.find((i) => i.kind === 'message') as MessageItem;
+    expect(m.durationMs).toBe(12_000);
+  });
+
+  it('closes still-streaming thoughts at turn end with the turn.done time', () => {
+    const s = ingest(emptyTranscript(), [
+      at({ type: 'user.message', id: 'u', text: 'Hi' }, 1, 1_000),
+      at({ type: 'message.delta', id: 't', role: 'thought', text: 'x' }, 2, 2_000),
+      at({ type: 'turn.done', stopReason: 'end_turn' }, 3, 4_000),
+    ], { settle: true });
+    const m = s.turns[0]!.items.find((i) => i.kind === 'message') as MessageItem;
+    expect(m).toMatchObject({ done: true, startedAt: 2_000, endedAt: 4_000 });
+  });
+});

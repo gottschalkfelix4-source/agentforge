@@ -36,7 +36,14 @@ export type AgentEvent =
   /** Echo of a user prompt, so the transcript is complete from events alone. */
   | { type: 'user.message'; id: string; text: string; images?: ImageInput[] }
   | { type: 'message.delta'; id: string; role: 'assistant' | 'thought'; text: string }
-  | { type: 'message.done'; id: string; role: 'assistant' | 'thought'; text: string }
+  | {
+      type: 'message.done';
+      id: string;
+      role: 'assistant' | 'thought';
+      text: string;
+      /** Time from the first streamed chunk to completion (e.g. "Nachgedacht für 12 s"). */
+      durationMs?: number;
+    }
   | { type: 'tool.start'; id: string; kind: ToolKind; title: string; input?: unknown; locations?: string[] }
   | {
       type: 'tool.update';

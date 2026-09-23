@@ -37,6 +37,8 @@ export interface TurnStartParams {
   approvalPolicy?: AskForApproval | null;
   sandboxPolicy?: SandboxPolicy | null;
   model?: string | null;
+  /** Reasoning summary verbosity ("auto" | "concise" | "detailed" | "none"). */
+  summary?: 'auto' | 'concise' | 'detailed' | 'none' | null;
 }
 export type TurnStatus = 'completed' | 'interrupted' | 'failed' | 'inProgress';
 export interface TurnError { message: string; additionalDetails: string | null }
