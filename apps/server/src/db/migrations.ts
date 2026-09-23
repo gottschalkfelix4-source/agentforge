@@ -216,4 +216,9 @@ export const migrations: string[] = [
   ALTER TABLE task_runs ADD COLUMN base_sha TEXT;
   ALTER TABLE task_runs ADD COLUMN profile_id TEXT;
   `,
+
+  /* v4: chat sessions pick models from the profile's provider */ `
+  ALTER TABLE agent_sessions ADD COLUMN provider_model TEXT;
+  ALTER TABLE agent_sessions ADD COLUMN provider_models_json TEXT;
+  `,
 ];

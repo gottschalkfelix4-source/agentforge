@@ -161,3 +161,22 @@ describe('gemini / qwen / copilot / cline / aider / goose', () => {
     expect(l.env).toMatchObject({ GOOSE_PROVIDER: 'ollama', OLLAMA_HOST: 'http://host.docker.internal:11434', GOOSE_DISABLE_KEYRING: '1' });
   });
 });
+
+describe('chat model override', () => {
+  it('uses the model picked in the chat instead of the profile/provider default', () => {
+    const base = { profile: profile('opencode'), provider: provider('openrouter'), apiKey: KEY };
+    expect(buildStructuredLaunch('opencode', base).model).toBe('vibe/m1');
+    expect(buildStructuredLaunch('opencode', { ...base, modelOverride: 'm2' }).model).toBe('vibe/m2');
+  });
+
+  it('bakes the override into env-configured agents (Claude via an Anthropic-compatible endpoint)', () => {
+    const s = buildStructuredLaunch('claude', {
+      profile: profile('claude'),
+      provider: provider('ollama'),
+      apiKey: KEY,
+      modelOverride: 'qwen3-coder',
+    });
+    expect(s.env.ANTHROPIC_MODEL).toBe('qwen3-coder');
+    expect(JSON.stringify(s.args)).not.toContain(KEY);
+  });
+});

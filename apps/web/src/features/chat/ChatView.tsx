@@ -36,7 +36,7 @@ import { NewSession } from './NewSession';
 import { SessionList } from './SessionList';
 import { dropSessionStream, useTranscript } from './session-stream';
 import { TranscriptView, UsageLine, UserBubble } from './TranscriptView';
-import type { TranscriptState } from './transcript';
+import type { SessionInfo, TranscriptState } from './transcript';
 import { AgentAvatar, StatusDot, STATUS_LABEL, usePersistentState } from './util';
 
 /** Keep Monaco's global theme (used by the code-block colorizer) in sync with the app theme. */
@@ -131,13 +131,34 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
   }, [userCount, pending]);
 
   const info = React.useMemo(() => {
-    if (!state.info) return null;
-    return {
-      ...state.info,
-      currentModel: state.info.currentModel ?? session.currentModel,
-      currentMode: state.info.currentMode ?? session.currentMode,
+    const providerModels = session.providerModels;
+    if (!state.info && !providerModels) return null;
+    const base: SessionInfo = state.info ?? {
+      externalId: session.externalId,
+      models: [],
+      currentModel: null,
+      modes: [],
+      currentMode: null,
+      commands: [],
     };
-  }, [state.info, session.currentModel, session.currentMode]);
+    return {
+      ...base,
+      currentModel: base.currentModel ?? session.currentModel,
+      currentMode: base.currentMode ?? session.currentMode,
+      // Sessions with a provider profile (API key / own endpoint / Ollama) pick from the provider's models.
+      ...(providerModels
+        ? { models: providerModels.map((m) => ({ id: m, name: m })), currentModel: session.providerModel ?? providerModels[0] ?? null }
+        : {}),
+    };
+  }, [state.info, session.currentModel, session.currentMode, session.providerModels, session.providerModel, session.externalId]);
+
+  const switchModel = (id: string) => {
+    if (!session.providerModels) return run(actions.model(id));
+    if (id === (session.providerModel ?? null)) return;
+    run(
+      actions.model(id).then(() => toast.success(`Modell: ${id} – Agent wird mit dem neuen Modell fortgesetzt`)),
+    );
+  };
 
   const send = async (text: string, images: ComposerImage[]) => {
     setPending({ text, images, userCount });
@@ -294,7 +315,8 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
             onSend={send}
             onStop={actions.cancel}
             info={info}
-            onModel={(id) => run(actions.model(id))}
+            onModel={switchModel}
+            modelsFromProvider={!!session.providerModels}
             onMode={(id) => run(actions.mode(id))}
             autoFocus
           />

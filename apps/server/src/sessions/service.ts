@@ -47,6 +47,8 @@ export interface SessionRow {
   task_run_id: string | null;
   current_model: string | null;
   current_mode: string | null;
+  provider_model?: string | null;
+  provider_models_json?: string | null;
   last_seq: number;
   created_at: string;
   updated_at: string;
@@ -66,6 +68,8 @@ export const toSession = (r: SessionRow): AgentSession => ({
   taskRunId: r.task_run_id,
   currentModel: r.current_model,
   currentMode: r.current_mode,
+  providerModels: r.provider_models_json ? (JSON.parse(r.provider_models_json) as string[]) : null,
+  providerModel: r.provider_model ?? null,
   lastSeq: r.last_seq,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -116,7 +120,12 @@ export class SessionStore {
   }
 
   /** Updates columns, bumps updated_at and publishes session.updated. */
-  patch(id: string, patch: Partial<Pick<SessionRow, 'title' | 'status' | 'status_message' | 'external_id' | 'current_model' | 'current_mode'>>): SessionRow | undefined {
+  patch(
+    id: string,
+    patch: Partial<
+      Pick<SessionRow, 'title' | 'status' | 'status_message' | 'external_id' | 'current_model' | 'current_mode' | 'provider_model' | 'provider_models_json'>
+    >,
+  ): SessionRow | undefined {
     this.db.update('agent_sessions', id, { ...patch, updated_at: nowIso() });
     const row = this.row(id);
     if (row) bus.project(row.project_id, { type: 'session.updated', projectId: row.project_id, session: toSession(row) });
@@ -285,7 +294,10 @@ export class SessionService {
 
   // ---- launch -------------------------------------------------------------------------
 
-  private launchParams(row: Pick<SessionRow, 'id' | 'agent_id' | 'profile_id' | 'cwd' | 'last_seq' | 'external_id' | 'current_model' | 'current_mode'>, resume: boolean): AgentStartParams {
+  private launchParams(
+    row: Pick<SessionRow, 'id' | 'agent_id' | 'profile_id' | 'cwd' | 'last_seq' | 'external_id' | 'current_model' | 'current_mode' | 'provider_model'>,
+    resume: boolean,
+  ): AgentStartParams {
     const repo = providerRepo(this.ctx);
     const profile = row.profile_id ? repo.profile(row.profile_id) : null;
     if (row.profile_id && !profile) throw new HttpError(400, 'invalid_profile', 'Profil nicht gefunden');
@@ -301,7 +313,7 @@ export class SessionService {
     const apiKey = provider?.secretId ? this.ctx.secrets.get(provider.secretId) : null;
     let launch;
     try {
-      launch = buildStructuredLaunch(row.agent_id, { profile, provider, apiKey });
+      launch = buildStructuredLaunch(row.agent_id, { profile, provider, apiKey, modelOverride: row.provider_model ?? null });
     } catch (err) {
       throw new HttpError(400, 'invalid_agent', (err as Error).message);
     }
@@ -313,12 +325,49 @@ export class SessionService {
       args: launch.args,
       cwd: row.cwd,
       env: launch.env,
-      model: (resume ? row.current_model : null) ?? launch.model,
+      // Provider sessions: the model is part of the launch (env/config); the agent's own ids don't apply.
+      model: this.providerModels(row) ? launch.model : ((resume ? row.current_model : null) ?? launch.model),
       mode: resume ? row.current_mode : null,
       mcpServers: [PLAYWRIGHT_MCP],
       resumeExternalId: resume ? row.external_id : null,
       startSeq: row.last_seq,
     };
+  }
+
+  /**
+   * Models offered in the chat picker for a session with a provider profile (null otherwise):
+   * the provider's configured models plus its default and the profile model.
+   */
+  providerModels(row: Pick<SessionRow, 'profile_id' | 'provider_model'>): { models: string[]; selected: string | null } | null {
+    const repo = providerRepo(this.ctx);
+    const profile = row.profile_id ? repo.profile(row.profile_id) : null;
+    if (profile?.authMode !== 'provider' || !profile.providerId) return null;
+    const provider = repo.get(profile.providerId);
+    if (!provider) return null;
+    const selected = row.provider_model || profile.model || provider.defaultModel || null;
+    const models = [...new Set([...provider.models, provider.defaultModel, profile.model, selected].filter((m): m is string => !!m))];
+    return { models, selected };
+  }
+
+  /** Sessions of a project; rows created before provider models existed are filled in on the way. */
+  listSessions(projectId: string): AgentSession[] {
+    const stale = this.ctx.db.all<{ id: string }>(
+      'SELECT id FROM agent_sessions WHERE project_id = ? AND profile_id IS NOT NULL AND provider_models_json IS NULL',
+      projectId,
+    );
+    for (const r of stale) this.syncProviderModels(r.id);
+    return this.store.list(projectId);
+  }
+
+  /** Stores the provider model list/selection on the row so the browser sees it with the session. */
+  private syncProviderModels(id: string) {
+    const row = this.store.require(id);
+    const pm = this.providerModels(row);
+    const json = pm ? JSON.stringify(pm.models) : null;
+    const selected = pm?.selected ?? null;
+    if (json !== (row.provider_models_json ?? null) || selected !== (row.provider_model ?? null)) {
+      this.store.patch(id, { provider_models_json: json, provider_model: selected });
+    }
   }
 
   /** agent.start; failures land in the row as status `error` (the session stays, /resume retries). */
@@ -351,6 +400,7 @@ export class SessionService {
       external_id: null,
       current_model: null,
       current_mode: null,
+      provider_model: body.model?.trim() || null,
     };
     // Validates profile + policy before anything is created.
     const params = this.launchParams(draft, false);
@@ -368,6 +418,7 @@ export class SessionService {
       created_at: now,
       updated_at: now,
     });
+    this.syncProviderModels(id);
     const created = this.store.require(id);
     bus.project(projectId, { type: 'session.updated', projectId, session: toSession(created) });
     const row = await this.startAgent(client, params);
@@ -382,6 +433,7 @@ export class SessionService {
   }
 
   async resume(id: string): Promise<AgentSession> {
+    this.syncProviderModels(id);
     const row = this.store.require(id);
     const params = this.launchParams(row, true);
     const client = await this.clientFor(row);
@@ -431,8 +483,20 @@ export class SessionService {
     return this.call(id, 'agent.setMode', { value });
   }
 
-  setModel(id: string, value: string) {
-    return this.call(id, 'agent.setModel', { value });
+  async setModel(id: string, value: string): Promise<unknown> {
+    const row = this.store.require(id);
+    if (!this.providerModels(row)) return this.call(id, 'agent.setModel', { value });
+    // Provider sessions: the model is baked into the launch (env/config per agent), so switching means
+    // restarting the agent process with the new model and resuming the same conversation.
+    if (row.status === 'running' || row.status === 'awaiting_approval') {
+      throw new HttpError(409, 'session_busy', 'Das Modell kann gewechselt werden, sobald der Agent fertig ist');
+    }
+    this.store.patch(id, { provider_model: value });
+    const client = this.connectedClient(row.project_id);
+    if (client && row.status !== 'stopped' && row.status !== 'error') {
+      await client.call('agent.stop', { sessionId: id }).catch(() => undefined);
+    }
+    return this.resume(id);
   }
 
   async stop(id: string): Promise<AgentSession> {

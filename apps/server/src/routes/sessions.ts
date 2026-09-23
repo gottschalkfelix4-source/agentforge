@@ -17,6 +17,7 @@ const createBody = z.object({
     .refine((p) => !p.split(/[\\/]/).includes('..'), 'Ungültiger Pfad')
     .optional(),
   initialPrompt: z.string().max(200_000).optional(),
+  model: z.string().trim().min(1).max(300).nullish(),
 });
 const promptBody = z.object({ text: z.string().max(200_000), images: z.array(imageSchema).max(20).optional() });
 const approvalBody = z.object({ requestId: z.string().min(1), optionId: z.string().min(1) });
@@ -30,7 +31,7 @@ export async function sessionsRoutes(app: FastifyInstance, ctx: AppContext) {
   type P = { Params: { id: string } };
   type S = { Params: { sid: string } };
 
-  app.get<P>('/api/projects/:id/sessions', async (req) => store.list(req.params.id));
+  app.get<P>('/api/projects/:id/sessions', async (req) => svc.listSessions(req.params.id));
   app.post<P>('/api/projects/:id/sessions', async (req) => svc.create(req.params.id, createBody.parse(req.body)));
 
   app.get<S>('/api/sessions/:sid', async (req) => toSession(store.require(req.params.sid)));

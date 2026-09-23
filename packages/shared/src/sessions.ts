@@ -19,6 +19,13 @@ export interface AgentSession {
   taskRunId: string | null;
   currentModel: string | null;
   currentMode: string | null;
+  /**
+   * Models of the provider behind the session's profile (API key / own endpoint / Ollama).
+   * null = no provider profile; the agent's own model list (session.info) applies.
+   */
+  providerModels: string[] | null;
+  /** Model selected from `providerModels`. */
+  providerModel: string | null;
   lastSeq: number;
   createdAt: string;
   updatedAt: string;
@@ -31,6 +38,8 @@ export interface CreateSessionRequest {
   cwd?: string;
   /** Sent as the first prompt once the session is ready. */
   initialPrompt?: string;
+  /** Provider model for sessions with a provider profile (defaults to the profile / provider default). */
+  model?: string | null;
 }
 
 export interface PromptRequest { text: string; images?: ImageInput[] }

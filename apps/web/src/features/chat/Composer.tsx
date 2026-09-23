@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 import type { ImageInput } from '@vibe/shared';
 import { ArrowUp, Check, ChevronDown, Cpu, ImagePlus, Loader2, Square, SlidersHorizontal, X } from 'lucide-react';
@@ -10,6 +11,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { SessionInfo } from './transcript';
@@ -37,6 +39,7 @@ export function PickerMenu<T extends string>({
   value,
   onSelect,
   disabled,
+  footer,
 }: {
   icon?: React.ReactNode;
   label: React.ReactNode;
@@ -45,6 +48,7 @@ export function PickerMenu<T extends string>({
   value: T | null | undefined;
   onSelect: (id: T) => void;
   disabled?: boolean;
+  footer?: React.ReactNode;
 }) {
   return (
     <DropdownMenu>
@@ -70,6 +74,12 @@ export function PickerMenu<T extends string>({
             {it.right}
           </DropdownMenuItem>
         ))}
+        {footer && (
+          <>
+            <DropdownMenuSeparator />
+            {footer}
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -86,6 +96,7 @@ export function Composer({
   onStop,
   info,
   onModel,
+  modelsFromProvider,
   onMode,
   leftSlot,
   large,
@@ -103,6 +114,8 @@ export function Composer({
   onStop?: () => Promise<unknown>;
   info?: SessionInfo | null;
   onModel?: (id: string) => void;
+  /** Models come from the session's provider profile (shows a link to manage them). */
+  modelsFromProvider?: boolean;
   onMode?: (id: string) => void;
   leftSlot?: React.ReactNode;
   large?: boolean;
@@ -395,11 +408,18 @@ export function Composer({
             <PickerMenu
               icon={<Cpu className="size-3.5" />}
               label={currentModel?.name ?? info?.currentModel ?? 'Modell'}
-              title="Modell"
+              title={modelsFromProvider ? 'Modell (Provider)' : 'Modell'}
               items={models.map((m) => ({ id: m.id, name: m.name }))}
               value={info?.currentModel}
               onSelect={onModel}
-              disabled={disabled}
+              disabled={disabled || (modelsFromProvider && running)}
+              footer={
+                modelsFromProvider ? (
+                  <Link to="/settings/providers" className="block px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground">
+                    Modelle verwalten…
+                  </Link>
+                ) : undefined
+              }
             />
           )}
           <div className="ml-auto flex items-center gap-1.5">

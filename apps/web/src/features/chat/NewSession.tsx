@@ -2,9 +2,9 @@ import * as React from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { KeyRound, Loader2, SquareTerminal, TriangleAlert, UserCog } from 'lucide-react';
+import { Cpu, KeyRound, Loader2, SquareTerminal, TriangleAlert, UserCog } from 'lucide-react';
 import { api, ApiRequestError } from '@/lib/api';
-import { qk, useProfiles } from '@/lib/queries';
+import { qk, useProfiles, useProviders } from '@/lib/queries';
 import { useNav, useUi } from '@/lib/store';
 import { errorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ const SUGGESTIONS = [
 export function NewSession({ projectId }: { projectId: string }) {
   const agents = useChatAgents();
   const profiles = useProfiles();
+  const providers = useProviders();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const create = useCreateSession(projectId);
@@ -41,6 +42,20 @@ export function NewSession({ projectId }: { projectId: string }) {
   const profileId = agentProfiles.some((p) => p.id === storedProfile) ? storedProfile! : null;
   const profile = agentProfiles.find((p) => p.id === profileId);
 
+  // Provider profiles (API key / own endpoint / Ollama) choose from the provider's models.
+  const [modelPref, setModelPref] = usePersistentState<Record<string, string>>('vibe-chat-model', {});
+  const provider = profile?.authMode === 'provider' ? providers.data?.find((p) => p.id === profile.providerId) : undefined;
+  const providerModels = React.useMemo(
+    () =>
+      provider
+        ? [...new Set([...provider.models, provider.defaultModel, profile?.model].filter((m): m is string => !!m))]
+        : [],
+    [provider, profile?.model],
+  );
+  const fallbackModel = profile?.model ?? provider?.defaultModel ?? providerModels[0] ?? null;
+  const storedModel = profileId ? modelPref[profileId] : undefined;
+  const model = storedModel && providerModels.includes(storedModel) ? storedModel : fallbackModel;
+
   const send = async (text: string, images: ComposerImage[]): Promise<boolean> => {
     if (!agent) return false;
     setSubError(null);
@@ -48,6 +63,7 @@ export function NewSession({ projectId }: { projectId: string }) {
       const session = await create.mutateAsync({
         agentId: agent.id,
         profileId,
+        model: provider ? model : undefined,
         // CreateSessionRequest has no images → send them with a follow-up prompt instead
         initialPrompt: images.length ? undefined : text || undefined,
       });
@@ -113,6 +129,23 @@ export function NewSession({ projectId }: { projectId: string }) {
           setSubError(null);
         }}
       />
+      {provider && (
+        <PickerMenu
+          icon={<Cpu className="size-3.5" />}
+          label={model ?? 'Modell'}
+          title={`Modell (${provider.name})`}
+          items={
+            providerModels.length
+              ? providerModels.map((m) => ({ id: m, name: m }))
+              : [{ id: '__none', name: 'Keine Modelle hinterlegt', description: 'Einstellungen → Provider → „Modelle laden“' }]
+          }
+          value={model}
+          onSelect={(id) => {
+            if (id === '__none') return navigate('/settings/providers');
+            if (profileId) setModelPref({ ...modelPref, [profileId]: id });
+          }}
+        />
+      )}
     </>
   ) : null;
 

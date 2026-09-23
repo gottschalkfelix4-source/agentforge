@@ -9,6 +9,8 @@ export interface LaunchContext {
   provider: ProviderRecord | null;
   /** Decrypted API key of the provider, if any. */
   apiKey: string | null;
+  /** Provider model chosen for this launch (chat model picker); overrides profile/provider defaults. */
+  modelOverride?: string | null;
 }
 
 interface Resolved {
@@ -28,7 +30,7 @@ function resolve(m: AgentManifest, ctx: LaunchContext): Resolved {
   if (!m.providerKinds.includes(p.kind)) {
     throw new HttpError(400, 'invalid_profile', `${m.label} unterstützt Provider vom Typ „${p.kind}“ nicht`);
   }
-  const model = profile.model ?? p.defaultModel ?? null;
+  const model = ctx.modelOverride || profile.model || p.defaultModel || null;
   const render = renderProvider(m.id, { provider: p, apiKey: ctx.apiKey ?? '', model });
   const effective = render.model !== undefined ? render.model : model;
   return { render, model: effective, structuredModel: render.structuredModel !== undefined ? render.structuredModel : effective };
