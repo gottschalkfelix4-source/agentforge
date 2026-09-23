@@ -1,0 +1,91 @@
+// Normalized agent event model (Phase 2). Shaped after the Agent Client Protocol (ACP);
+// native adapters (Codex app-server) map onto the same events.
+
+export type SessionStatus = 'starting' | 'idle' | 'running' | 'awaiting_approval' | 'error' | 'stopped';
+
+export type ToolKind = 'exec' | 'edit' | 'read' | 'search' | 'fetch' | 'mcp' | 'think' | 'other';
+export type ToolStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface FileDiff {
+  /** Path relative to the session cwd (or absolute inside the container). */
+  path: string;
+  oldText: string | null;
+  newText: string | null;
+  /** Optional unified diff, when the agent provides one instead of full texts. */
+  unified?: string;
+}
+
+export interface ApprovalOption {
+  id: string;
+  label: string;
+  kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always';
+}
+
+export interface PlanEntry {
+  text: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+export interface ImageInput {
+  mime: string;
+  /** base64 without data: prefix */
+  data: string;
+}
+
+export type AgentEvent =
+  /** Echo of a user prompt, so the transcript is complete from events alone. */
+  | { type: 'user.message'; id: string; text: string; images?: ImageInput[] }
+  | { type: 'message.delta'; id: string; role: 'assistant' | 'thought'; text: string }
+  | { type: 'message.done'; id: string; role: 'assistant' | 'thought'; text: string }
+  | { type: 'tool.start'; id: string; kind: ToolKind; title: string; input?: unknown; locations?: string[] }
+  | {
+      type: 'tool.update';
+      id: string;
+      status?: ToolStatus;
+      title?: string;
+      /** Appended output (e.g. command stdout chunk). */
+      output?: string;
+      diffs?: FileDiff[];
+      locations?: string[];
+    }
+  | { type: 'tool.done'; id: string; status: 'completed' | 'failed'; output?: string; diffs?: FileDiff[] }
+  | {
+      type: 'approval.request';
+      id: string;
+      toolId?: string;
+      kind: 'exec' | 'edit' | 'other';
+      title: string;
+      detail?: string;
+      diffs?: FileDiff[];
+      options: ApprovalOption[];
+    }
+  | { type: 'approval.resolved'; id: string; optionId: string }
+  | { type: 'plan'; entries: PlanEntry[] }
+  | { type: 'diff.turn'; files: FileDiff[] }
+  | { type: 'usage'; inputTokens?: number; outputTokens?: number; costUsd?: number; contextPercent?: number }
+  | { type: 'status'; status: SessionStatus; message?: string }
+  | { type: 'turn.start' }
+  | { type: 'turn.done'; stopReason: string }
+  | { type: 'error'; message: string }
+  | {
+      type: 'session.info';
+      externalId: string;
+      models?: { id: string; name: string }[];
+      currentModel?: string | null;
+      modes?: { id: string; name: string; description?: string }[];
+      currentMode?: string | null;
+      commands?: { name: string; description?: string }[];
+    };
+
+export interface SessionEventRecord {
+  seq: number;
+  ts: string;
+  event: AgentEvent;
+}
+
+export interface McpServerSpec {
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}

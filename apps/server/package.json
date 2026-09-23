@@ -1,0 +1,36 @@
+{
+  "name": "@vibe/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^4.0.1",
+    "@types/node": "^26.6.2",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/static": "^10.1.4",
+    "@fastify/websocket": "^11.3.1",
+    "@node-rs/argon2": "^2.2.1",
+    "@vibe/shared": "workspace:*",
+    "dockerode": "^5.0.1",
+    "fastify": "^5.12.5",
+    "tar-stream": "^3.2.1",
+    "ulid": "^3.0.2",
+    "ws": "^8.21.3",
+    "zod": "^4.6.5"
+  }
+}

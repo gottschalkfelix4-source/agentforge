@@ -1,0 +1,82 @@
+const BY_EXT: Record<string, string> = {
+  ts: 'typescript',
+  tsx: 'typescript',
+  mts: 'typescript',
+  cts: 'typescript',
+  js: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  json: 'json',
+  jsonc: 'json',
+  json5: 'json',
+  md: 'markdown',
+  mdx: 'markdown',
+  markdown: 'markdown',
+  html: 'html',
+  htm: 'html',
+  vue: 'html',
+  svelte: 'html',
+  astro: 'html',
+  css: 'css',
+  scss: 'scss',
+  sass: 'scss',
+  less: 'less',
+  py: 'python',
+  rb: 'ruby',
+  go: 'go',
+  rs: 'rust',
+  java: 'java',
+  kt: 'kotlin',
+  kts: 'kotlin',
+  swift: 'swift',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cc: 'cpp',
+  hpp: 'cpp',
+  cs: 'csharp',
+  php: 'php',
+  sh: 'shell',
+  bash: 'shell',
+  zsh: 'shell',
+  ps1: 'powershell',
+  sql: 'sql',
+  yml: 'yaml',
+  yaml: 'yaml',
+  toml: 'ini',
+  ini: 'ini',
+  env: 'ini',
+  xml: 'xml',
+  svg: 'xml',
+  graphql: 'graphql',
+  gql: 'graphql',
+  dart: 'dart',
+  lua: 'lua',
+  r: 'r',
+  scala: 'scala',
+  dockerfile: 'dockerfile',
+  prisma: 'graphql',
+};
+
+const BY_NAME: Record<string, string> = {
+  dockerfile: 'dockerfile',
+  makefile: 'makefile',
+  '.gitignore': 'ini',
+  '.dockerignore': 'ini',
+  '.env': 'ini',
+  '.editorconfig': 'ini',
+  '.npmrc': 'ini',
+  '.prettierrc': 'json',
+  '.eslintrc': 'json',
+};
+
+export function languageFor(path: string): string {
+  const name = (path.split('/').pop() ?? path).toLowerCase();
+  if (BY_NAME[name]) return BY_NAME[name];
+  if (name.startsWith('.env')) return 'ini';
+  if (name.startsWith('dockerfile')) return 'dockerfile';
+  const dot = name.lastIndexOf('.');
+  if (dot < 0) return 'plaintext';
+  return BY_EXT[name.slice(dot + 1)] ?? 'plaintext';
+}

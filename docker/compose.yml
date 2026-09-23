@@ -1,0 +1,67 @@
+# Agentforge — local/self-hosted deployment. Full guide: docs/installation.md
+#
+# A) Prebuilt images from GHCR (recommended):
+#   cd docker && cp ../.env.example .env      # set AGENTFORGE_SECRET_KEY, HOST_DATA_PATH, AGENTFORGE_IMAGE, WORKSPACE_IMAGE
+#   docker compose pull && docker compose up -d
+#
+# B) Build locally from source:
+#   docker compose --profile build-only build workspace-image   # builds agentforge-workspace:dev
+#   docker compose up -d --build                                  # builds + starts the app (agentforge:dev)
+#
+# docker/.env (next to this file), e.g.:
+#   AGENTFORGE_SECRET_KEY=<long random string, e.g. `openssl rand -hex 32`>
+#   HOST_DATA_PATH=/absolute/host/path/to/docker/.data
+#   AGENTFORGE_IMAGE=ghcr.io/gottschalkfelix4-source/agentforge:latest
+#   WORKSPACE_IMAGE=ghcr.io/gottschalkfelix4-source/agentforge-workspace:latest
+
+name: agentforge
+
+services:
+  agentforge:
+    build:
+      context: ..
+      dockerfile: docker/app/Dockerfile
+    image: ${AGENTFORGE_IMAGE:-agentforge:dev}
+    restart: unless-stopped
+    ports:
+      - "${VIBE_PORT:-8080}:8080"
+      # Preview port range (forwarded workspace dev servers, PREVIEW_MODE=port).
+      # Host and container ports must be identical.
+      - "7100-7119:7100-7119"
+    volumes:
+      # The server creates workspace containers through the host Docker daemon.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.data:/data
+    environment:
+      # HOST_DATA_PATH MUST be the path of ./.data *on the Docker host*: the
+      # server bind-mounts subdirectories of /data (project files, agent homes)
+      # into workspace containers, and the Docker daemon resolves those mount
+      # sources on the host, not inside this container. The default works when
+      # `docker compose` is run from this directory on Linux/macOS; on Windows
+      # (Docker Desktop) set it explicitly in .env, e.g.
+      # HOST_DATA_PATH=C:/Users/me/agentforge/docker/.data
+      HOST_DATA_PATH: ${HOST_DATA_PATH:-${PWD}/.data}
+      WORKSPACE_IMAGE: ${WORKSPACE_IMAGE:-agentforge-workspace:dev}
+      AGENTFORGE_SECRET_KEY: ${AGENTFORGE_SECRET_KEY:?set AGENTFORGE_SECRET_KEY in docker/.env}
+      AGENTFORGE_DATA_DIR: /data
+      PORT: "8080"
+      # Optional (see docs/installation.md):
+      WORKSPACE_IDLE_MINUTES: ${WORKSPACE_IDLE_MINUTES:-0}   # auto-stop idle workspaces, 0 = off
+      PREVIEW_MODE: ${PREVIEW_MODE:-port}                    # port | subdomain
+      PREVIEW_DOMAIN: ${PREVIEW_DOMAIN:-}                    # e.g. preview.example.com (subdomain mode)
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}                # own GitHub OAuth app (device flow)
+      AGENTFORGE_SECURE_COOKIES: ${AGENTFORGE_SECURE_COOKIES:-0}         # 1 when only reached via HTTPS
+      PUID: ${PUID:-}
+      PGID: ${PGID:-}
+      TZ: ${TZ:-}
+
+  # Build-only service: produces the workspace image used for every project.
+  # `docker compose --profile build-only build workspace-image`
+  workspace-image:
+    profiles: ["build-only"]
+    build:
+      context: ..
+      dockerfile: docker/workspace/Dockerfile
+    image: ${WORKSPACE_IMAGE:-agentforge-workspace:dev}
+    entrypoint: ["true"]
+    restart: "no"

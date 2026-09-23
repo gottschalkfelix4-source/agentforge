@@ -1,0 +1,24 @@
+# ~/.bashrc for the Agentforge workspace user.
+[ -z "${PS1:-}" ] && return
+
+HISTCONTROL=ignoreboth
+HISTSIZE=10000
+HISTFILESIZE=20000
+shopt -s histappend checkwinsize
+
+[ -f /etc/profile.d/vibe.sh ] && . /etc/profile.d/vibe.sh
+[ -f /usr/share/bash-completion/bash_completion ] && . /usr/share/bash-completion/bash_completion
+
+__vibe_git_branch() {
+  local b
+  b=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null) || return
+  printf ' \001\033[35m\002(%s)\001\033[0m\002' "$b"
+}
+
+PS1='\[\033[1;32m\]\u\[\033[0m\]@\[\033[1;34m\]${VIBE_PROJECT:-workspace}\[\033[0m\]:\[\033[36m\]\w\[\033[0m\]$(__vibe_git_branch)\n\$ '
+
+alias ls='ls --color=auto'
+alias ll='ls -alF'
+alias la='ls -A'
+alias grep='grep --color=auto'
+alias fd='fdfind'

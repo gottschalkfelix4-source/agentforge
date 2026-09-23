@@ -1,0 +1,17 @@
+{
+  "name": "agentforge",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter ./apps/* dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "node-pty", "esbuild", "cpu-features", "ssh2", "@node-rs/argon2"]
+  }
+}

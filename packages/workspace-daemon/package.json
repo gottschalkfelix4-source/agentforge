@@ -1,0 +1,31 @@
+{
+  "name": "@vibe/workspace-daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agentforge workspace daemon (wsd): PTYs, filesystem and port discovery inside a workspace container",
+  "main": "./dist/wsd.js",
+  "bin": { "wsd": "./dist/wsd.js" },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "tsx watch src/dev.ts",
+    "start": "node dist/wsd.js"
+  },
+  "dependencies": {
+    "@vibe/agent-adapters": "workspace:*",
+    "@vibe/shared": "workspace:*",
+    "chokidar": "^5.0.0",
+    "node-pty": "^1.1.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.0"
+  }
+}

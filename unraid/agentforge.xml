@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<!--
+  Unraid Community Applications template for Agentforge.
+
+  BEFORE PUBLISHING: replace every "gottschalkfelix4-source" below with the (lower-case) GitHub user/org that
+  publishes the images to GHCR via .github/workflows/images.yml, and make both GHCR packages
+  (agentforge, agentforge-workspace) public. See unraid/README.md.
+-->
+<Container version="2">
+  <Name>Agentforge</Name>
+  <Repository>ghcr.io/gottschalkfelix4-source/agentforge:latest</Repository>
+  <Registry>https://github.com/gottschalkfelix4-source/agentforge/pkgs/container/agentforge</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/gottschalkfelix4-source/agentforge/issues</Support>
+  <Project>https://github.com/gottschalkfelix4-source/agentforge</Project>
+  <ReadMe>https://github.com/gottschalkfelix4-source/agentforge/blob/main/docs/installation.md</ReadMe>
+  <Overview>
+    Self-hosted vibecoding platform: run Claude Code, Codex CLI, OpenCode, Cline, Kilo Code, Gemini CLI and more
+    in a single web UI. Every project gets its own isolated workspace container with terminal, editor, live preview,
+    GitHub integration and project management.[br][br]
+    [b]Setup:[/b] set HOST_DATA_PATH to exactly the same host path as AppData and set a long random Secret Key.
+    The first-run setup token is printed to the container log and written to AppData/setup-token.txt.[br][br]
+    [b]Note:[/b] Agentforge needs the Docker socket to create workspace containers (equivalent to root on the host).
+    Only expose it behind a reverse proxy with HTTPS.
+  </Overview>
+  <Category>Productivity: Tools: Other:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/gottschalkfelix4-source/agentforge/main/unraid/agentforge.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/gottschalkfelix4-source/agentforge/main/unraid/icon.png</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <Requires>
+    HOST_DATA_PATH must equal the AppData host path. The workspace image (several GB) is pulled automatically on
+    first project creation.
+  </Requires>
+
+  <Config Name="Web UI Port" Target="8080" Default="8080" Mode="tcp" Description="Port of the Agentforge web interface." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Preview Ports" Target="7100-7119" Default="7100-7119" Mode="tcp" Description="Port range for live previews of dev servers running in workspaces (PREVIEW_MODE=port). Host and container range must be identical." Type="Port" Display="always" Required="false" Mask="false">7100-7119</Config>
+
+  <Config Name="AppData" Target="/data" Default="/mnt/user/appdata/agentforge" Mode="rw" Description="Database, project files, agent logins and caches." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/agentforge</Config>
+  <Config Name="Docker Socket" Target="/var/run/docker.sock" Default="/var/run/docker.sock" Mode="rw" Description="Required to create and manage workspace containers." Type="Path" Display="advanced" Required="true" Mask="false">/var/run/docker.sock</Config>
+
+  <Config Name="HOST_DATA_PATH" Target="HOST_DATA_PATH" Default="/mnt/user/appdata/agentforge" Mode="" Description="MUST be identical to the host path of AppData above (workspace containers bind-mount subfolders of it). Prefer /mnt/cache/... or /mnt/user/... consistently." Type="Variable" Display="always" Required="true" Mask="false">/mnt/user/appdata/agentforge</Config>
+  <Config Name="Secret Key" Target="AGENTFORGE_SECRET_KEY" Default="" Mode="" Description="Long random string used to encrypt stored API keys and tokens (e.g. output of: openssl rand -hex 32). Keep a copy - without it stored secrets cannot be decrypted. Do not change it later." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Workspace Image" Target="WORKSPACE_IMAGE" Default="ghcr.io/gottschalkfelix4-source/agentforge-workspace:latest" Mode="" Description="Image used for project workspaces. Update it in Settings - System, then use 'Neu erstellen' per project." Type="Variable" Display="advanced" Required="true" Mask="false">ghcr.io/gottschalkfelix4-source/agentforge-workspace:latest</Config>
+  <Config Name="Workspace Idle Stop (min)" Target="WORKSPACE_IDLE_MINUTES" Default="0" Mode="" Description="Stop a workspace after this many minutes without running agents or terminal processes (0 = off). Can be overridden in Settings - System." Type="Variable" Display="always" Required="false" Mask="false">0</Config>
+  <Config Name="Preview Mode" Target="PREVIEW_MODE" Default="port" Mode="" Description="port = previews on the Preview Ports range (no DNS needed); subdomain = previews on https://p[N].PREVIEW_DOMAIN through the main port (needs wildcard DNS + reverse proxy)." Type="Variable" Display="advanced" Required="false" Mask="false">port</Config>
+  <Config Name="Preview Domain" Target="PREVIEW_DOMAIN" Default="" Mode="" Description="Only for PREVIEW_MODE=subdomain, e.g. preview.example.com (wildcard *.preview.example.com must point to the reverse proxy)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="GitHub OAuth Client ID" Target="GITHUB_CLIENT_ID" Default="" Mode="" Description="Optional: client id of your own GitHub OAuth App (device flow enabled) for the GitHub login." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Secure Cookies" Target="AGENTFORGE_SECURE_COOKIES" Default="0" Mode="" Description="Set to 1 when Agentforge is only reached via HTTPS (reverse proxy)." Type="Variable" Display="advanced" Required="false" Mask="false">0</Config>
+  <Config Name="Workspace CPUs" Target="WORKSPACE_CPUS" Default="4" Mode="" Description="CPU limit per workspace container." Type="Variable" Display="advanced" Required="false" Mask="false">4</Config>
+  <Config Name="Workspace Memory (MB)" Target="WORKSPACE_MEMORY_MB" Default="8192" Mode="" Description="Memory limit per workspace container." Type="Variable" Display="advanced" Required="false" Mask="false">8192</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID owning project files inside workspaces." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID owning project files inside workspaces." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="TZ" Target="TZ" Default="Europe/Berlin" Mode="" Description="Time zone." Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Berlin</Config>
+</Container>
