@@ -76,6 +76,12 @@ interface PendingApproval {
   options: acp.PermissionOption[];
 }
 
+/** `_meta.claudeCode.parentToolUseId` of an update (set by claude-agent-acp for sub-agent / side-query output). */
+function parentToolUseId(u: { _meta?: unknown }): string | null {
+  const meta = (u._meta as { claudeCode?: { parentToolUseId?: unknown } } | null | undefined)?.claudeCode;
+  return typeof meta?.parentToolUseId === 'string' ? meta.parentToolUseId : null;
+}
+
 export class AcpSession extends BaseSession {
   private sessionId: string | null = null;
   private caps: acp.AgentCapabilities = {};
@@ -337,17 +343,31 @@ export class AcpSession extends BaseSession {
     return parts.length ? parts.join('\n') : undefined;
   }
 
+  /** Appends side output (e.g. a sub-agent's text) to a running tool card; unknown tools drop it. */
+  private appendToolOutput(toolCallId: string, text: string, thought: boolean) {
+    const t = this.tools.get(toolCallId);
+    if (!t || !text || thought) return; // sub-agent thinking is noise in the parent card
+    t.output += text;
+    this.emit({ type: 'tool.update', id: toolCallId, output: text });
+  }
+
   private onUpdate(n: acp.SessionNotification) {
     if (this.replaying) return;
     if (this.sessionId && n.sessionId && n.sessionId !== this.sessionId) return;
     const u = n.update;
     switch (u.sessionUpdate) {
       case 'agent_message_chunk':
-        this.delta('assistant', contentText(u.content), u.messageId);
+      case 'agent_thought_chunk': {
+        // Text of sub-agents / side queries (Claude Code: Task tool, web search, auto-mode classifier) carries
+        // _meta.claudeCode.parentToolUseId. It is not the answer — attach it to that tool card instead.
+        const parent = parentToolUseId(u);
+        if (parent) {
+          this.appendToolOutput(parent, contentText(u.content), u.sessionUpdate === 'agent_thought_chunk');
+          break;
+        }
+        this.delta(u.sessionUpdate === 'agent_message_chunk' ? 'assistant' : 'thought', contentText(u.content), u.messageId);
         break;
-      case 'agent_thought_chunk':
-        this.delta('thought', contentText(u.content), u.messageId);
-        break;
+      }
       case 'user_message_chunk':
         break;
       case 'tool_call':

@@ -108,6 +108,17 @@ describe('AcpAdapter', () => {
     expect(events).toContainEqual({ type: 'tool.done', id: 'tc1', status: 'failed' });
   });
 
+  it('keeps sub-agent / side-query text out of the answer (Claude parentToolUseId)', async () => {
+    const { h, events, waitFor } = start('acp');
+    await h.ready;
+    await h.prompt('subagent');
+    await waitFor('turn.done');
+    const answers = events.filter((e) => e.type === 'message.done' && e.role === 'assistant').map((e) => (e as { text: string }).text);
+    expect(answers).toEqual(['Hier ist die Antwort.']);
+    const side = events.filter((e) => e.type === 'tool.update' && e.id === 'ws1' && (e as { output?: string }).output);
+    expect(side.map((e) => (e as { output: string }).output).join('')).toContain('I am Claude');
+  });
+
   it('turns form elicitations (AskUserQuestion) into questions and answers them', async () => {
     const { h, events, waitFor } = start('acp');
     await h.ready;

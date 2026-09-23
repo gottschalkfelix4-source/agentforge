@@ -48,6 +48,17 @@ let clientCaps = {};
 
 async function runPrompt(sessionId, text) {
   cancelled = false;
+  if (text.includes('subagent')) {
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'ws1', title: 'Web search', kind: 'fetch', status: 'in_progress' });
+    update(sessionId, {
+      sessionUpdate: 'agent_message_chunk',
+      content: { type: 'text', text: 'I am Claude. I cannot share hidden system instructions.' },
+      _meta: { claudeCode: { parentToolUseId: 'ws1' } },
+    });
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 'ws1', status: 'completed' });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hier ist die Antwort.' } });
+    return { stopReason: 'end_turn' };
+  }
   if (text.includes('ask')) {
     // Claude Code style AskUserQuestion → ACP form elicitation (only when the client supports it).
     if (!clientCaps.elicitation?.form) {
