@@ -107,7 +107,7 @@ export class AcpSession extends BaseSession {
     const init = await this.rpc.request<acp.InitializeResponse>('initialize', {
       protocolVersion: PROTOCOL_VERSION,
       // `elicitation.form`: we render agent questions (Claude Code only enables AskUserQuestion with it).
-      clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {} } } as acp.ClientCapabilities,
+      clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {} }, session: { notices: {} } } as acp.ClientCapabilities,
       clientInfo: { name: this.opts.clientName ?? 'agentforge', title: 'Agentforge', version: this.opts.clientVersion ?? '0.1.0' },
     } satisfies acp.InitializeRequest);
     this.caps = init.agentCapabilities ?? {};
@@ -400,7 +400,17 @@ export class AcpSession extends BaseSession {
         });
         break;
       case 'notice':
+        // Runtime notices (`session.notices` capability): advisories that are not part of the answer.
         if (u.severity === 'error') this.emit({ type: 'error', message: u.description ? `${u.title}: ${u.description}` : u.title });
+        else {
+          this.closeMessages();
+          this.emit({
+            type: 'notice',
+            severity: u.severity === 'warning' ? 'warning' : 'info',
+            title: u.title,
+            ...(u.description ? { description: u.description } : {}),
+          });
+        }
         break;
       default:
         break;

@@ -48,6 +48,15 @@ let clientCaps = {};
 
 async function runPrompt(sessionId, text) {
   cancelled = false;
+  if (text.includes('notice')) {
+    if (clientCaps.session?.notices) {
+      update(sessionId, { sessionUpdate: 'notice', severity: 'warning', title: 'Warning', description: 'Auto mode classifier billing' });
+    } else {
+      update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '**Warning:** Auto mode classifier billing' } });
+    }
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Antwort' } });
+    return { stopReason: 'end_turn' };
+  }
   if (text.includes('subagent')) {
     update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'ws1', title: 'Web search', kind: 'fetch', status: 'in_progress' });
     update(sessionId, {

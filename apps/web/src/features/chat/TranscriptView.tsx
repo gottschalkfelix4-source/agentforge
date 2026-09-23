@@ -13,6 +13,7 @@ import {
   FileSearch,
   FileText,
   GitCompareArrows,
+  Info,
   KanbanSquare,
   Globe,
   ListChecks,
@@ -32,7 +33,7 @@ import { DiffList, DiffStat } from './DiffView';
 import { diffStats } from './diff';
 import { Markdown } from './Markdown';
 import { ThoughtView } from './ThoughtBlock';
-import type { ApprovalItem, MessageItem, QuestionItem, ToolItem, TranscriptItem, TranscriptState, Turn, Usage } from './transcript';
+import type { ApprovalItem, MessageItem, NoticeItem, QuestionItem, ToolItem, TranscriptItem, TranscriptState, Turn, Usage } from './transcript';
 import { QuestionCard } from './QuestionCard';
 import { formatTokens } from './util';
 
@@ -446,6 +447,26 @@ export function UsageLine({ usage, className }: { usage: Usage; className?: stri
   return <div className={cn('font-mono text-[10.5px] text-muted-foreground/70 tabular-nums', className)}>{parts.join(' · ')}</div>;
 }
 
+/** Runtime notice of the agent (e.g. Claude Code warnings) — visually separate from the answer. */
+function NoticeRow({ item }: { item: NoticeItem }) {
+  const { projectId } = React.useContext(TranscriptCtx);
+  const warn = item.severity !== 'info';
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-2 rounded-lg border px-3 py-2 text-[12.5px]',
+        warn ? 'border-warning/35 bg-warning/[0.06] text-foreground/85' : 'border-border bg-muted/40 text-muted-foreground',
+      )}
+    >
+      {warn ? <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" /> : <Info className="mt-0.5 size-3.5 shrink-0" />}
+      <div className="min-w-0">
+        <span className="font-medium">{item.title}</span>
+        {item.description && <Markdown text={item.description} projectId={projectId} className="mt-0.5 text-[12.5px] leading-snug" />}
+      </div>
+    </div>
+  );
+}
+
 function QuestionCardRow({ item }: { item: QuestionItem }) {
   const { answer } = React.useContext(TranscriptCtx);
   return <QuestionCard item={item} onAnswer={answer} />;
@@ -465,6 +486,8 @@ const Row = React.memo(function Row({ item }: { item: TranscriptItem }) {
       return <ApprovalCard item={item} />;
     case 'question':
       return <QuestionCardRow item={item} />;
+    case 'notice':
+      return <NoticeRow item={item} />;
     case 'error':
       return (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">

@@ -289,3 +289,18 @@ describe('agent questions', () => {
     expect(done).toMatchObject({ resolved: { action: 'accept', answers: { q0: 'SQLite' } } });
   });
 });
+
+describe('runtime notices', () => {
+  it('adds notice items apart from assistant messages', () => {
+    const at = (event: AgentEvent, seq: number): SessionEventRecord => ({ seq, ts: new Date(seq * 1000).toISOString(), event });
+    const s = ingest(emptyTranscript(), [
+      at({ type: 'user.message', id: 'u', text: 'x' }, 1),
+      at({ type: 'notice', severity: 'warning', title: 'Warning', description: 'a' }, 2),
+      at({ type: 'notice', severity: 'warning', title: 'Warning', description: 'a' }, 3),
+      at({ type: 'message.done', id: 'm', role: 'assistant', text: 'Antwort' }, 4),
+    ], { settle: true });
+    const kinds = s.turns[0]!.items.map((i) => i.kind);
+    expect(kinds).toEqual(['user', 'notice', 'notice', 'message']);
+    expect(new Set(s.turns[0]!.items.map((i) => i.key)).size).toBe(4);
+  });
+});

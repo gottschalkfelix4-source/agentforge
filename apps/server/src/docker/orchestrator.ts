@@ -6,6 +6,8 @@ import { AGENT_MANIFESTS, WSD_PORT } from '@vibe/shared';
 import type { Config } from '../config.js';
 
 export const MANAGED_LABEL = 'vibe.managed';
+/** Claude Code permission rule allowing every tool of the `agentforge` MCP server. */
+const AGENTFORGE_ALLOW_RULE = 'mcp__agentforge';
 /** Set on workspaces created with Docker-in-Docker; older containers are recreated on their next start. */
 export const DOCKER_LABEL = 'vibe.docker';
 
@@ -132,7 +134,7 @@ export class Orchestrator {
   /**
    * Defaults in the shared agent config dirs. Claude Code: request API-side thinking summaries — recent
    * models otherwise stream empty ("omitted") thinking blocks, so neither the chat nor the TUI could show
-   * the thought process. Existing user settings are merged, never overwritten.
+   * the thought process — and allow the Agentforge board tools. Existing user settings are merged, never overwritten.
    */
   ensureAgentDefaults() {
     const dir = this.localPath('agent-home', 'claude');
@@ -143,8 +145,20 @@ export class Orchestrator {
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return; // unreadable/invalid: leave it alone
     }
-    if (settings.showThinkingSummaries !== undefined) return;
-    settings.showThinkingSummaries = true;
+    let changed = false;
+    if (settings.showThinkingSummaries === undefined) {
+      settings.showThinkingSummaries = true;
+      changed = true;
+    }
+    // The Agentforge board tools only touch the project board: allow them up front, so they neither need an
+    // approval nor Claude's auto-mode classifier (which fails behind some API gateways).
+    const permissions = (settings.permissions ?? {}) as { allow?: unknown };
+    const allow = Array.isArray(permissions.allow) ? (permissions.allow as unknown[]) : [];
+    if (!allow.includes(AGENTFORGE_ALLOW_RULE)) {
+      settings.permissions = { ...permissions, allow: [...allow, AGENTFORGE_ALLOW_RULE] };
+      changed = true;
+    }
+    if (!changed) return;
     mkdirSync(dir, { recursive: true });
     writeFileSync(file, JSON.stringify(settings, null, 2) + '\n', { mode: 0o644 });
     // The app runs as root in its container; hand the file to the workspace user so Claude can update it.

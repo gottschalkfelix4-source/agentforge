@@ -87,13 +87,21 @@ export interface QuestionItem {
   resolved: { action: 'accept' | 'decline' | 'cancel'; answers?: QuestionAnswers } | null;
 }
 
+export interface NoticeItem {
+  kind: 'notice';
+  key: string;
+  severity: 'info' | 'warning' | 'error';
+  title: string;
+  description?: string;
+}
+
 export interface ErrorItem {
   kind: 'error';
   key: string;
   message: string;
 }
 
-export type TranscriptItem = UserItem | MessageItem | ToolItem | ApprovalItem | QuestionItem | ErrorItem;
+export type TranscriptItem = UserItem | MessageItem | ToolItem | ApprovalItem | QuestionItem | NoticeItem | ErrorItem;
 
 export interface Usage {
   inputTokens?: number;
@@ -400,6 +408,12 @@ function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
       const pos = d.find(`approval:${ev.id}`);
       if (!pos) return;
       d.item<ApprovalItem>(pos).resolvedOptionId = ev.optionId;
+      return;
+    }
+    case 'notice': {
+      const ti = d.current();
+      const n = d.s.turns[ti]?.items.length ?? 0;
+      d.add({ kind: 'notice', key: `notice:${ti}:${n}`, severity: ev.severity, title: ev.title, description: ev.description }, ti);
       return;
     }
     case 'question.request': {

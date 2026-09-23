@@ -85,6 +85,8 @@ export type AgentEvent =
   | { type: 'question.request'; id: string; toolId?: string; message: string; fields: QuestionField[] }
   | { type: 'question.resolved'; id: string; action: 'accept' | 'decline' | 'cancel'; answers?: QuestionAnswers }
   | { type: 'plan'; entries: PlanEntry[] }
+  /** System notice from the agent runtime (warnings, fallbacks) — not part of the agent's answer. */
+  | { type: 'notice'; severity: 'info' | 'warning' | 'error'; title: string; description?: string }
   | { type: 'diff.turn'; files: FileDiff[] }
   | { type: 'usage'; inputTokens?: number; outputTokens?: number; costUsd?: number; contextPercent?: number }
   | { type: 'status'; status: SessionStatus; message?: string }

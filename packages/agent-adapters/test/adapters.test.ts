@@ -108,6 +108,16 @@ describe('AcpAdapter', () => {
     expect(events).toContainEqual({ type: 'tool.done', id: 'tc1', status: 'failed' });
   });
 
+  it('receives runtime notices separately from the answer', async () => {
+    const { h, events, waitFor } = start('acp');
+    await h.ready;
+    await h.prompt('notice');
+    await waitFor('turn.done');
+    expect(events).toContainEqual({ type: 'notice', severity: 'warning', title: 'Warning', description: 'Auto mode classifier billing' });
+    const answers = events.filter((e) => e.type === 'message.done' && e.role === 'assistant').map((e) => (e as { text: string }).text);
+    expect(answers).toEqual(['Antwort']);
+  });
+
   it('keeps sub-agent / side-query text out of the answer (Claude parentToolUseId)', async () => {
     const { h, events, waitFor } = start('acp');
     await h.ready;
