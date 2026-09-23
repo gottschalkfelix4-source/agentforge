@@ -304,3 +304,22 @@ describe('runtime notices', () => {
     expect(new Set(s.turns[0]!.items.map((i) => i.key)).size).toBe(4);
   });
 });
+
+describe('sub-agents', () => {
+  it('keeps the parent of sub-agent steps and messages and times the sub-agent', () => {
+    const at = (event: AgentEvent, seq: number): SessionEventRecord => ({ seq, ts: new Date(seq * 1000).toISOString(), event });
+    const s = ingest(emptyTranscript(), [
+      at({ type: 'user.message', id: 'u', text: 'x' }, 1),
+      at({ type: 'tool.start', id: 'a1', kind: 'agent', title: 'Code durchsuchen', input: { prompt: 'Finde TODOs', subagent_type: 'Explore' } }, 2),
+      at({ type: 'tool.start', id: 'g1', kind: 'search', title: 'grep', parentId: 'a1' }, 3),
+      at({ type: 'message.delta', id: 'cm', role: 'assistant', text: 'Gefunden', parentId: 'a1' }, 4),
+      at({ type: 'tool.done', id: 'a1', status: 'completed', output: 'Bericht' }, 6),
+      at({ type: 'message.done', id: 'm', role: 'assistant', text: 'Fertig' }, 7),
+    ], { settle: true });
+    const items = s.turns[0]!.items;
+    expect(items.find((i) => i.key === 'tool:a1')).toMatchObject({ toolKind: 'agent', status: 'completed', output: 'Bericht', startedAt: 2000, endedAt: 6000 });
+    expect(items.find((i) => i.key === 'tool:g1')).toMatchObject({ parentId: 'a1' });
+    expect(items.find((i) => i.key === 'msg:assistant:cm')).toMatchObject({ parentId: 'a1', text: 'Gefunden' });
+    expect((items.find((i) => i.key === 'msg:assistant:m') as MessageItem).parentId).toBeUndefined();
+  });
+});

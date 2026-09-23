@@ -16,7 +16,7 @@ export interface ThoughtViewProps {
   title?: string;
 }
 
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
   const s = Math.max(1, Math.round(ms / 1000));
   if (s < 60) return `${s} s`;
   const m = Math.floor(s / 60);
@@ -24,7 +24,7 @@ function formatDuration(ms: number): string {
 }
 
 /** Seconds since `since`, ticking once per second while `active`. */
-function useElapsed(active: boolean, since: number | undefined): number {
+export function useElapsed(active: boolean, since: number | undefined): number {
   const [mountedAt] = React.useState(() => Date.now());
   const start = since ?? mountedAt;
   const [now, setNow] = React.useState(() => Date.now());

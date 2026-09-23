@@ -69,6 +69,16 @@ interface ToolState {
   kind: ToolKind;
   done: boolean;
   lastUpdate?: string;
+  /** Sub-agent tool this call belongs to. */
+  parentId?: string;
+}
+
+/** Streaming message of a sub-agent (kept apart from the main answer's open messages). */
+interface ChildMessage {
+  id: string;
+  role: 'assistant' | 'thought';
+  text: string;
+  startedAt: number;
 }
 
 interface PendingApproval {
@@ -76,10 +86,28 @@ interface PendingApproval {
   options: acp.PermissionOption[];
 }
 
+interface ClaudeCodeMeta {
+  parentToolUseId?: unknown;
+  toolName?: unknown;
+  subagent?: unknown;
+}
+
+function claudeMeta(u: { _meta?: unknown }): ClaudeCodeMeta | undefined {
+  return (u._meta as { claudeCode?: ClaudeCodeMeta } | null | undefined)?.claudeCode ?? undefined;
+}
+
 /** `_meta.claudeCode.parentToolUseId` of an update (set by claude-agent-acp for sub-agent / side-query output). */
 function parentToolUseId(u: { _meta?: unknown }): string | null {
-  const meta = (u._meta as { claudeCode?: { parentToolUseId?: unknown } } | null | undefined)?.claudeCode;
-  return typeof meta?.parentToolUseId === 'string' ? meta.parentToolUseId : null;
+  const id = claudeMeta(u)?.parentToolUseId;
+  return typeof id === 'string' ? id : null;
+}
+
+/** Tool call that runs a sub-agent: Claude Code's Task/Agent tool, OpenCode's task tool (`subagent_type` + `prompt`). */
+function isSubagentCall(u: { _meta?: unknown; rawInput?: unknown }): boolean {
+  const meta = claudeMeta(u);
+  if (meta?.subagent === true || meta?.toolName === 'Task' || meta?.toolName === 'Agent') return true;
+  const raw = u.rawInput as Record<string, unknown> | null | undefined;
+  return !!raw && typeof raw === 'object' && typeof raw.prompt === 'string' && (typeof raw.subagent_type === 'string' || typeof raw.subagentType === 'string');
 }
 
 export class AcpSession extends BaseSession {
@@ -88,6 +116,8 @@ export class AcpSession extends BaseSession {
   private configOptions: acp.SessionConfigOption[] = [];
   private legacyModels: LegacyModelState | null = null;
   private readonly tools = new Map<string, ToolState>();
+  /** Open streamed message per sub-agent (parent tool id). */
+  private readonly childMessages = new Map<string, ChildMessage>();
   private readonly approvals = new Map<string, PendingApproval>();
   /** Open questions (form elicitations) waiting for the user's answer. */
   private readonly questions = new Map<string, { fields: QuestionField[]; resolve: (r: ElicitationResponse) => void }>();
@@ -107,7 +137,9 @@ export class AcpSession extends BaseSession {
     const init = await this.rpc.request<acp.InitializeResponse>('initialize', {
       protocolVersion: PROTOCOL_VERSION,
       // `elicitation.form`: we render agent questions (Claude Code only enables AskUserQuestion with it).
-      clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {} }, session: { notices: {} } } as acp.ClientCapabilities,
+      clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {} }, session: { notices: {} },
+        // claude-agent-acp: also forward sub-agent text/thinking (tagged with parentToolUseId) for the sub-agent card.
+        _meta: { 'subagent-transcript': true } } as acp.ClientCapabilities,
       clientInfo: { name: this.opts.clientName ?? 'agentforge', title: 'Agentforge', version: this.opts.clientVersion ?? '0.1.0' },
     } satisfies acp.InitializeRequest);
     this.caps = init.agentCapabilities ?? {};
@@ -323,6 +355,7 @@ export class AcpSession extends BaseSession {
     this.questions.clear();
     if (this.turnActive) {
       this.turnActive = false;
+      this.closeChildMessages();
       this.closeMessages();
       this.emit({ type: 'turn.done', stopReason: 'exited' });
     }
@@ -343,12 +376,38 @@ export class AcpSession extends BaseSession {
     return parts.length ? parts.join('\n') : undefined;
   }
 
-  /** Appends side output (e.g. a sub-agent's text) to a running tool card; unknown tools drop it. */
-  private appendToolOutput(toolCallId: string, text: string, thought: boolean) {
-    const t = this.tools.get(toolCallId);
-    if (!t || !text || thought) return; // sub-agent thinking is noise in the parent card
-    t.output += text;
-    this.emit({ type: 'tool.update', id: toolCallId, output: text });
+  /** Text tagged with a parent tool: a sub-agent's message, or side output (web search, classifier) of a normal tool. */
+  private childText(parentId: string, role: 'assistant' | 'thought', text: string, messageId?: string | null) {
+    const t = this.tools.get(parentId);
+    if (!t || !text || t.done) return;
+    if (t.kind !== 'agent') {
+      if (role === 'thought') return; // side-query thinking is noise in the tool card
+      t.output += text;
+      this.emit({ type: 'tool.update', id: parentId, output: text });
+      return;
+    }
+    let open = this.childMessages.get(parentId);
+    if (open && (open.role !== role || (messageId && open.id !== messageId))) {
+      this.closeChildMessage(parentId);
+      open = undefined;
+    }
+    if (!open) {
+      open = { id: messageId || newId(), role, text: '', startedAt: Date.now() };
+      this.childMessages.set(parentId, open);
+    }
+    open.text += text;
+    this.emit({ type: 'message.delta', id: open.id, role, text, parentId });
+  }
+
+  private closeChildMessage(parentId: string) {
+    const open = this.childMessages.get(parentId);
+    if (!open) return;
+    this.childMessages.delete(parentId);
+    this.emit({ type: 'message.done', id: open.id, role: open.role, text: open.text, durationMs: Date.now() - open.startedAt, parentId });
+  }
+
+  private closeChildMessages() {
+    for (const parentId of [...this.childMessages.keys()]) this.closeChildMessage(parentId);
   }
 
   private onUpdate(n: acp.SessionNotification) {
@@ -362,7 +421,7 @@ export class AcpSession extends BaseSession {
         // _meta.claudeCode.parentToolUseId. It is not the answer — attach it to that tool card instead.
         const parent = parentToolUseId(u);
         if (parent) {
-          this.appendToolOutput(parent, contentText(u.content), u.sessionUpdate === 'agent_thought_chunk');
+          this.childText(parent, u.sessionUpdate === 'agent_message_chunk' ? 'assistant' : 'thought', contentText(u.content), u.messageId);
           break;
         }
         this.delta(u.sessionUpdate === 'agent_message_chunk' ? 'assistant' : 'thought', contentText(u.content), u.messageId);
@@ -418,15 +477,30 @@ export class AcpSession extends BaseSession {
   }
 
   private onToolCall(u: acp.ToolCall) {
-    this.closeMessages();
-    const kind = mapToolKind(u.kind);
+    const parent = parentToolUseId(u);
+    const parentId = parent && parent !== u.toolCallId && this.tools.get(parent)?.kind === 'agent' ? parent : undefined;
+    // A sub-agent's step only interrupts that sub-agent's message, not the main answer.
+    if (parentId) this.closeChildMessage(parentId);
+    else this.closeMessages();
+    const kind: ToolKind = isSubagentCall(u) ? 'agent' : mapToolKind(u.kind);
     const existing = this.tools.get(u.toolCallId);
     if (existing) {
-      // Some agents re-send tool_call for the same id; treat as update.
+      // Some agents re-send tool_call for the same id (e.g. once the input is complete); treat as update.
+      if (kind === 'agent') existing.kind = 'agent';
+      if (u.rawInput !== undefined) {
+        this.emit({
+          type: 'tool.start',
+          id: u.toolCallId,
+          kind: existing.kind,
+          title: u.title,
+          input: u.rawInput,
+          ...(existing.parentId ? { parentId: existing.parentId } : {}),
+        });
+      }
       this.onToolUpdate(u);
       return;
     }
-    this.tools.set(u.toolCallId, { output: '', kind, done: false });
+    this.tools.set(u.toolCallId, { output: '', kind, done: false, ...(parentId ? { parentId } : {}) });
     const locations = u.locations?.map((l) => this.rel(l.path));
     this.emit({
       type: 'tool.start',
@@ -435,6 +509,7 @@ export class AcpSession extends BaseSession {
       title: u.title,
       ...(u.rawInput !== undefined ? { input: u.rawInput } : {}),
       ...(locations?.length ? { locations } : {}),
+      ...(parentId ? { parentId } : {}),
     });
     if (u.content?.length || (u.status && u.status !== 'pending')) this.onToolUpdate(u);
   }
@@ -449,11 +524,14 @@ export class AcpSession extends BaseSession {
     }
     if (t.done) return;
     const diffs = u.content ? this.diffsOf(u.content) : [];
-    const text = u.content ? this.textOf(u.content) : undefined;
-    const rawOut = typeof u.rawOutput === 'string' ? u.rawOutput : undefined;
+    // A running sub-agent's content is its prompt (already in the input); once it completes, it is the report.
+    const agentRunning = t.kind === 'agent' && u.status !== 'completed' && u.status !== 'failed';
+    const text = u.content && !agentRunning ? this.textOf(u.content) : undefined;
+    const rawOut = typeof u.rawOutput === 'string' && !agentRunning ? u.rawOutput : undefined;
     const full = text ?? rawOut;
 
     if (u.status === 'completed' || u.status === 'failed') {
+      if (t.kind === 'agent') this.closeChildMessage(u.toolCallId);
       t.done = true;
       this.emit({
         type: 'tool.done',
@@ -502,6 +580,7 @@ export class AcpSession extends BaseSession {
     blocks.push({ type: 'text', text });
     this.turnActive = true;
     this.tools.clear();
+    this.childMessages.clear();
     this.rpc
       .request<acp.PromptResponse>('session/prompt', { sessionId: this.sessionId, prompt: blocks } satisfies acp.PromptRequest)
       .then(
@@ -522,6 +601,7 @@ export class AcpSession extends BaseSession {
   private finishTurn(stopReason: string) {
     if (!this.turnActive) return;
     this.turnActive = false;
+    this.closeChildMessages();
     this.cancelApprovals();
     this.cancelQuestions();
     // Tools the agent never finished (e.g. on cancel) are closed so the UI stops spinning.

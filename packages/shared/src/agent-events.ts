@@ -3,7 +3,8 @@
 
 export type SessionStatus = 'starting' | 'idle' | 'running' | 'awaiting_approval' | 'error' | 'stopped';
 
-export type ToolKind = 'exec' | 'edit' | 'read' | 'search' | 'fetch' | 'mcp' | 'think' | 'other';
+/** `agent`: a sub-agent (Claude Code Task/Agent tool, Codex spawned agent); its own steps carry `parentId`. */
+export type ToolKind = 'exec' | 'edit' | 'read' | 'search' | 'fetch' | 'mcp' | 'think' | 'agent' | 'other';
 export type ToolStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export interface FileDiff {
@@ -49,7 +50,8 @@ export interface ImageInput {
 export type AgentEvent =
   /** Echo of a user prompt, so the transcript is complete from events alone. */
   | { type: 'user.message'; id: string; text: string; images?: ImageInput[] }
-  | { type: 'message.delta'; id: string; role: 'assistant' | 'thought'; text: string }
+  /** `parentId`: the message belongs to the sub-agent run by that tool (not the main answer). */
+  | { type: 'message.delta'; id: string; role: 'assistant' | 'thought'; text: string; parentId?: string }
   | {
       type: 'message.done';
       id: string;
@@ -57,8 +59,10 @@ export type AgentEvent =
       text: string;
       /** Time from the first streamed chunk to completion (e.g. "Nachgedacht für 12 s"). */
       durationMs?: number;
+      parentId?: string;
     }
-  | { type: 'tool.start'; id: string; kind: ToolKind; title: string; input?: unknown; locations?: string[] }
+  /** `parentId`: tool call made by the sub-agent that the tool `parentId` runs. */
+  | { type: 'tool.start'; id: string; kind: ToolKind; title: string; input?: unknown; locations?: string[]; parentId?: string }
   | {
       type: 'tool.update';
       id: string;

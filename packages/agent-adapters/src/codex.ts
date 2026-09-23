@@ -27,6 +27,17 @@ const CODEX_OPTIONS: ApprovalOption[] = [
   { id: 'cancel', label: 'Ablehnen und Turn abbrechen', kind: 'reject_always' },
 ];
 
+const COLLAB_LABELS: Partial<Record<cx.CollabAgentTool, string>> = {
+  sendInput: 'Nachricht an Subagent',
+  sendMessage: 'Nachricht an Subagent',
+  followupTask: 'Folgeauftrag an Subagent',
+  resumeAgent: 'Subagent fortgesetzt',
+  wait: 'Wartet auf Subagents',
+  closeAgent: 'Subagent beendet',
+  interruptAgent: 'Subagent unterbrochen',
+  listAgents: 'Subagents aufgelistet',
+};
+
 /** TOML value for a `-c key=value` override (JSON strings/arrays are valid TOML). */
 function tomlValue(v: string | string[] | Record<string, string>): string {
   if (typeof v === 'string') return JSON.stringify(v);
@@ -90,6 +101,10 @@ export class CodexSession extends BaseSession {
   /** Start time of reasoning items, for the thought duration when no deltas were streamed. */
   private readonly reasoningStartedAt = new Map<string, number>();
   private turnErrorReported = false;
+  /** Sub-agent thread → the tool id of its sub-agent card (items of that thread are shown inside the card). */
+  private readonly childThreads = new Map<string, string>();
+  /** Notifications of threads not (yet) known as sub-agents — replayed once the spawn names them. */
+  private readonly unknownThreads = new Map<string, [string, unknown][]>();
 
   constructor(opts: AgentStartOptions) {
     super({ ...opts, args: [...opts.args, ...codexMcpArgs(opts.mcpServers ?? [])] });
@@ -235,7 +250,10 @@ export class CodexSession extends BaseSession {
 
   private onNotification(method: string, params: unknown) {
     const p = params as Record<string, unknown>;
-    if (this.threadId && typeof p?.threadId === 'string' && p.threadId !== this.threadId) return;
+    if (this.threadId && typeof p?.threadId === 'string' && p.threadId !== this.threadId) {
+      this.onChildNotification(p.threadId, method, params);
+      return;
+    }
     switch (method) {
       case 'turn/started':
         this.turnId = (params as cx.TurnNotification).turn.id;
@@ -327,36 +345,45 @@ export class CodexSession extends BaseSession {
     }
   }
 
-  private onItemStarted(item: cx.ThreadItem) {
-    if (item.type === 'reasoning') this.reasoningStartedAt.set(item.id, Date.now());
-    switch (item.type) {
-      case 'commandExecution': {
-        const it = item as Extract<cx.ThreadItem, { type: 'commandExecution' }>;
-        this.startTool(it.id, 'exec', it.command, { command: it.command, cwd: it.cwd });
+  // ---- sub-agents (multi-agent / collab tools) ------------------------------------------
+
+  /** Events of a sub-agent thread: shown inside its card (`parentId`), never as the main answer. */
+  private onChildNotification(threadId: string, method: string, params: unknown) {
+    const parentId = this.childThreads.get(threadId);
+    if (!parentId) {
+      // The spawn item names the thread only on completion; keep a bounded backlog until then.
+      if (!this.unknownThreads.has(threadId) && this.unknownThreads.size >= 32) return;
+      const buf = this.unknownThreads.get(threadId) ?? [];
+      if (buf.length < 500) buf.push([method, params]);
+      this.unknownThreads.set(threadId, buf);
+      return;
+    }
+    switch (method) {
+      case 'item/started':
+        this.onItemStarted((params as cx.ItemNotification).item, parentId);
+        break;
+      case 'item/completed':
+        this.onItemCompleted((params as cx.ItemNotification).item, parentId);
+        break;
+      case 'item/agentMessage/delta': {
+        const d = params as cx.DeltaNotification;
+        if (d.delta) this.emit({ type: 'message.delta', id: d.itemId, role: 'assistant', text: d.delta, parentId });
         break;
       }
-      case 'fileChange': {
-        const it = item as Extract<cx.ThreadItem, { type: 'fileChange' }>;
-        const diffs = this.changeDiffs(it.changes);
-        this.startTool(it.id, 'edit', `Änderungen: ${diffs.map((d) => d.path).join(', ') || 'Dateien'}`, undefined, diffs.map((d) => d.path));
-        const t = this.tools.get(it.id)!;
-        t.diffs = diffs;
-        if (diffs.length) this.emit({ type: 'tool.update', id: it.id, status: 'running', diffs });
+      case 'item/reasoning/summaryTextDelta':
+      case 'item/reasoning/textDelta': {
+        const d = params as cx.DeltaNotification;
+        if (method === 'item/reasoning/summaryTextDelta') this.reasoningSummary.add(d.itemId);
+        else if (this.reasoningSummary.has(d.itemId)) break;
+        if (d.delta) this.emit({ type: 'message.delta', id: d.itemId, role: 'thought', text: d.delta, parentId });
         break;
       }
-      case 'mcpToolCall': {
-        const it = item as Extract<cx.ThreadItem, { type: 'mcpToolCall' }>;
-        this.startTool(it.id, 'mcp', `${it.server}: ${it.tool}`, it.arguments);
-        break;
-      }
-      case 'dynamicToolCall': {
-        const it = item as Extract<cx.ThreadItem, { type: 'dynamicToolCall' }>;
-        this.startTool(it.id, 'other', it.tool, it.arguments);
-        break;
-      }
-      case 'webSearch': {
-        const it = item as { id: string; query?: string };
-        this.startTool(it.id, 'fetch', it.query ? `Websuche: ${it.query}` : 'Websuche');
+      case 'item/commandExecution/outputDelta':
+      case 'item/fileChange/outputDelta': {
+        const d = params as cx.DeltaNotification;
+        const t = this.tools.get(d.itemId);
+        if (t) t.streamed = true;
+        if (d.delta) this.emit({ type: 'tool.update', id: d.itemId, output: d.delta });
         break;
       }
       default:
@@ -364,20 +391,92 @@ export class CodexSession extends BaseSession {
     }
   }
 
-  private onItemCompleted(item: cx.ThreadItem) {
+  private registerChildThreads(threadIds: string[], cardId: string) {
+    for (const tid of threadIds) {
+      if (tid === this.threadId || this.childThreads.has(tid)) continue;
+      this.childThreads.set(tid, cardId);
+      const backlog = this.unknownThreads.get(tid);
+      this.unknownThreads.delete(tid);
+      for (const [m, p] of backlog ?? []) this.onChildNotification(tid, m, p);
+    }
+  }
+
+  private onCollab(it: cx.CollabAgentToolCallItem, completed: boolean, parentId?: string) {
+    if (it.tool === 'spawnAgent') {
+      if (!this.tools.has(it.id)) {
+        const title = it.prompt?.trim().split('\n')[0]?.slice(0, 100) || 'Subagent';
+        this.startTool(it.id, 'agent', title, { prompt: it.prompt ?? '', ...(it.model ? { model: it.model } : {}) }, undefined, parentId);
+      }
+      this.registerChildThreads(it.receiverThreadIds ?? [], it.id);
+      // Spawning finishes right away; the card stays open until the sub-agent reports back.
+      if (completed && it.status !== 'completed') this.doneTool(it.id, 'failed');
+    } else if (!completed) {
+      this.startTool(it.id, 'other', COLLAB_LABELS[it.tool] ?? it.tool, it.prompt ? { prompt: it.prompt } : undefined, undefined, parentId);
+    } else {
+      this.doneTool(it.id, it.status === 'completed' ? 'completed' : 'failed');
+    }
+    for (const [tid, state] of Object.entries(it.agentsStates ?? {})) {
+      const card = this.childThreads.get(tid);
+      if (!card || !state || state.status === 'pendingInit' || state.status === 'running') continue;
+      this.doneTool(card, state.status === 'completed' || state.status === 'shutdown' ? 'completed' : 'failed', state.message ?? undefined);
+    }
+  }
+
+  private onItemStarted(item: cx.ThreadItem, parentId?: string) {
+    if (item.type === 'reasoning') this.reasoningStartedAt.set(item.id, Date.now());
+    switch (item.type) {
+      case 'commandExecution': {
+        const it = item as Extract<cx.ThreadItem, { type: 'commandExecution' }>;
+        this.startTool(it.id, 'exec', it.command, { command: it.command, cwd: it.cwd }, undefined, parentId);
+        break;
+      }
+      case 'fileChange': {
+        const it = item as Extract<cx.ThreadItem, { type: 'fileChange' }>;
+        const diffs = this.changeDiffs(it.changes);
+        this.startTool(it.id, 'edit', `Änderungen: ${diffs.map((d) => d.path).join(', ') || 'Dateien'}`, undefined, diffs.map((d) => d.path), parentId);
+        const t = this.tools.get(it.id)!;
+        t.diffs = diffs;
+        if (diffs.length) this.emit({ type: 'tool.update', id: it.id, status: 'running', diffs });
+        break;
+      }
+      case 'mcpToolCall': {
+        const it = item as Extract<cx.ThreadItem, { type: 'mcpToolCall' }>;
+        this.startTool(it.id, 'mcp', `${it.server}: ${it.tool}`, it.arguments, undefined, parentId);
+        break;
+      }
+      case 'dynamicToolCall': {
+        const it = item as Extract<cx.ThreadItem, { type: 'dynamicToolCall' }>;
+        this.startTool(it.id, 'other', it.tool, it.arguments, undefined, parentId);
+        break;
+      }
+      case 'webSearch': {
+        const it = item as { id: string; query?: string };
+        this.startTool(it.id, 'fetch', it.query ? `Websuche: ${it.query}` : 'Websuche', undefined, undefined, parentId);
+        break;
+      }
+      case 'collabAgentToolCall':
+        this.onCollab(item as cx.CollabAgentToolCallItem, false, parentId);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private onItemCompleted(item: cx.ThreadItem, parentId?: string) {
     switch (item.type) {
       case 'agentMessage':
-        this.finishMessage('assistant', item.id, (item as { text: string }).text);
-        break;
       case 'plan':
-        this.finishMessage('assistant', item.id, (item as { text: string }).text);
+        this.finishMessage('assistant', item.id, (item as { text: string }).text, parentId);
         break;
       case 'reasoning': {
         const it = item as Extract<cx.ThreadItem, { type: 'reasoning' }>;
         const text = it.summary.length ? it.summary.join('\n\n') : it.content.join('\n');
-        this.finishMessage('thought', it.id, text);
+        this.finishMessage('thought', it.id, text, parentId);
         break;
       }
+      case 'collabAgentToolCall':
+        this.onCollab(item as cx.CollabAgentToolCallItem, true, parentId);
+        break;
       case 'commandExecution': {
         const it = item as Extract<cx.ThreadItem, { type: 'commandExecution' }>;
         const ok = it.status === 'completed' && (it.exitCode === null || it.exitCode === 0);
@@ -417,9 +516,14 @@ export class CodexSession extends BaseSession {
     }));
   }
 
-  private finishMessage(role: 'assistant' | 'thought', id: string, text: string) {
+  private finishMessage(role: 'assistant' | 'thought', id: string, text: string, parentId?: string) {
     const started = this.reasoningStartedAt.get(id);
     this.reasoningStartedAt.delete(id);
+    if (parentId) {
+      // Sub-agent messages are not tracked as open messages (they interleave with the main flow).
+      this.emit({ type: 'message.done', id, role, text, parentId, ...(started ? { durationMs: Date.now() - started } : {}) });
+      return;
+    }
     if (this.openMessageId(role) === id) this.closeMessage(role, text);
     else if (text) {
       this.closeMessages();
@@ -427,13 +531,14 @@ export class CodexSession extends BaseSession {
     }
   }
 
-  private startTool(id: string, kind: ToolKind, title: string, input?: unknown, locations?: string[]) {
-    this.closeMessages();
+  private startTool(id: string, kind: ToolKind, title: string, input?: unknown, locations?: string[], parentId?: string) {
+    if (!parentId) this.closeMessages();
     if (this.tools.has(id)) return;
     this.tools.set(id, { kind, streamed: false, done: false });
     const ev: Extract<AgentEvent, { type: 'tool.start' }> = { type: 'tool.start', id, kind, title };
     if (input !== undefined) ev.input = input;
     if (locations?.length) ev.locations = locations;
+    if (parentId) ev.parentId = parentId;
     this.emit(ev);
   }
 
@@ -449,7 +554,8 @@ export class CodexSession extends BaseSession {
 
   private finishTurn(stopReason: string) {
     this.closeMessages();
-    for (const [id, t] of this.tools) if (!t.done) this.doneTool(id, 'failed');
+    // Sub-agents that never reported a final state are closed without a result.
+    for (const [id, t] of this.tools) if (!t.done) this.doneTool(id, t.kind === 'agent' ? 'completed' : 'failed');
     this.cancelApprovals();
     if (!this.turnActive) return;
     this.turnActive = false;
@@ -475,6 +581,7 @@ export class CodexSession extends BaseSession {
     for (const img of images ?? []) input.push({ type: 'image', url: `data:${img.mime};base64,${img.data}` });
     input.push({ type: 'text', text, text_elements: [] });
     this.tools.clear();
+    this.unknownThreads.clear();
     this.reasoningSummary.clear();
     this.turnErrorReported = false;
     this.turnActive = true;

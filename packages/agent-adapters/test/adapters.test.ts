@@ -129,6 +129,22 @@ describe('AcpAdapter', () => {
     expect(side.map((e) => (e as { output: string }).output).join('')).toContain('I am Claude');
   });
 
+  it('shows sub-agents (Claude Task tool) with nested steps and their own text', async () => {
+    const { h, events, waitFor } = start('acp');
+    await h.ready;
+    await h.prompt('taskagent');
+    await waitFor('turn.done');
+    expect(events.find((e) => e.type === 'tool.start' && e.id === 'task1')).toMatchObject({ kind: 'agent', input: { prompt: 'Finde alle TODOs' } });
+    expect(events.find((e) => e.type === 'tool.start' && e.id === 'g1')).toMatchObject({ kind: 'search', parentId: 'task1' });
+    const child = events.filter((e) => e.type === 'message.done' && (e as { parentId?: string }).parentId === 'task1');
+    expect(child.map((e) => [(e as { role: string }).role, (e as { text: string }).text])).toEqual([['thought', 'Ich suche'], ['assistant', 'Gefunden: 1 TODO']]);
+    // the prompt is not streamed as output; the report is the result
+    expect(events.some((e) => e.type === 'tool.update' && e.id === 'task1' && (e as { output?: string }).output)).toBe(false);
+    expect(events.find((e) => e.type === 'tool.done' && e.id === 'task1')).toMatchObject({ status: 'completed', output: 'Bericht: 1 TODO in a.ts' });
+    const answers = events.filter((e) => e.type === 'message.done' && e.role === 'assistant' && !(e as { parentId?: string }).parentId).map((e) => (e as { text: string }).text);
+    expect(answers).toEqual(['Fertig.']);
+  });
+
   it('turns form elicitations (AskUserQuestion) into questions and answers them', async () => {
     const { h, events, waitFor } = start('acp');
     await h.ready;
@@ -273,6 +289,21 @@ describe('CodexAppServerAdapter', () => {
     expect(events).toContainEqual({ type: 'approval.resolved', id: req.id, optionId: 'decline' });
     expect(stderr.find((l) => l.startsWith('turn/start'))).toContain('"approvalPolicy":"never"');
     expect(stderr.find((l) => l.startsWith('turn/start'))).toContain('"model":"gpt-x"');
+  });
+
+  it('shows spawned sub-agents with the steps of their own thread', async () => {
+    const { h, events, waitFor } = start('codex_app_server');
+    await h.ready;
+    await h.prompt('spawn');
+    const done = await waitFor('turn.done');
+    expect(done.stopReason).toBe('end_turn');
+    expect(events.find((e) => e.type === 'tool.start' && e.id === 'col_1')).toMatchObject({ kind: 'agent', title: 'Prüfe die Tests', input: { prompt: 'Prüfe die Tests\nim Detail' } });
+    expect(events.find((e) => e.type === 'tool.start' && e.id === 'ccmd')).toMatchObject({ kind: 'exec', parentId: 'col_1' });
+    expect(events).toContainEqual(expect.objectContaining({ type: 'message.done', id: 'cmsg', role: 'assistant', text: 'Alle grün', parentId: 'col_1' }));
+    expect(events).toContainEqual({ type: 'tool.done', id: 'col_1', status: 'completed', output: 'Tests sind grün' });
+    expect(events).toContainEqual(expect.objectContaining({ type: 'tool.start', id: 'col_2', kind: 'other', title: 'Wartet auf Subagents' }));
+    const answers = events.filter((e) => e.type === 'message.done' && e.role === 'assistant' && !(e as { parentId?: string }).parentId).map((e) => (e as { text: string }).text);
+    expect(answers).toEqual(['Subagent fertig']);
   });
 
   it('interrupts a running turn', async () => {

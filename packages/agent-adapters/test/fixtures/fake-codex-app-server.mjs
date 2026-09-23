@@ -34,6 +34,24 @@ async function runTurn(tid, turnId, text, params) {
     notify('turn/completed', { threadId: tid, turn: { id: turnId, status: interrupted ? 'interrupted' : 'completed', error: null, items: [] } });
     return;
   }
+  if (text.includes('spawn')) {
+    const spawn = { type: 'collabAgentToolCall', id: 'col_1', tool: 'spawnAgent', status: 'inProgress', senderThreadId: tid, receiverThreadIds: [], prompt: 'Prüfe die Tests\nim Detail', model: null, reasoningEffort: null, agentsStates: {} };
+    notify('item/started', { ...base, item: spawn });
+    // child events arrive before the spawn item names the child thread
+    const child = { threadId: 'thr_child', turnId: 'ct1' };
+    notify('item/started', { ...child, item: { type: 'commandExecution', id: 'ccmd', command: 'npm test', cwd: '/workspace', status: 'inProgress', aggregatedOutput: null, exitCode: null } });
+    notify('item/completed', { ...base, item: { ...spawn, status: 'completed', receiverThreadIds: ['thr_child'] } });
+    notify('item/completed', { ...child, item: { type: 'commandExecution', id: 'ccmd', command: 'npm test', cwd: '/workspace', status: 'completed', aggregatedOutput: 'ok', exitCode: 0 } });
+    notify('item/agentMessage/delta', { ...child, itemId: 'cmsg', delta: 'Alle grün' });
+    notify('item/completed', { ...child, item: { type: 'agentMessage', id: 'cmsg', text: 'Alle grün' } });
+    notify('turn/completed', { threadId: 'thr_child', turn: { id: 'ct1', status: 'completed', error: null, items: [] } });
+    const wait = { type: 'collabAgentToolCall', id: 'col_2', tool: 'wait', status: 'inProgress', senderThreadId: tid, receiverThreadIds: ['thr_child'], prompt: null, model: null, reasoningEffort: null, agentsStates: {} };
+    notify('item/started', { ...base, item: wait });
+    notify('item/completed', { ...base, item: { ...wait, status: 'completed', agentsStates: { thr_child: { status: 'completed', message: 'Tests sind grün' } } } });
+    notify('item/completed', { ...base, item: { type: 'agentMessage', id: 'msg_2', text: 'Subagent fertig' } });
+    notify('turn/completed', { threadId: tid, turn: { id: turnId, status: 'completed', error: null, items: [] } });
+    return;
+  }
   notify('item/started', { ...base, item: { type: 'reasoning', id: 'rs_1', summary: [], content: [] } });
   notify('item/reasoning/summaryTextDelta', { ...base, itemId: 'rs_1', delta: 'Plane ', summaryIndex: 0 });
   notify('item/reasoning/textDelta', { ...base, itemId: 'rs_1', delta: 'RAW', contentIndex: 0 });

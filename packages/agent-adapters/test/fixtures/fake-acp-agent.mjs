@@ -57,6 +57,25 @@ async function runPrompt(sessionId, text) {
     update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Antwort' } });
     return { stopReason: 'end_turn' };
   }
+  if (text.includes('taskagent')) {
+    // Claude Code Task tool: sub-agent steps and text carry _meta.claudeCode.parentToolUseId.
+    update(sessionId, {
+      sessionUpdate: 'tool_call', toolCallId: 'task1', title: 'Code durchsuchen', kind: 'think', status: 'pending',
+      rawInput: { description: 'Code durchsuchen', prompt: 'Finde alle TODOs', subagent_type: 'Explore' },
+      content: [{ type: 'content', content: { type: 'text', text: 'Finde alle TODOs' } }],
+      _meta: { claudeCode: { toolName: 'Agent', subagent: true } },
+    });
+    const sub = { claudeCode: { parentToolUseId: 'task1' } };
+    update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Ich suche' }, _meta: sub });
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'g1', title: 'grep TODO', kind: 'search', status: 'in_progress', _meta: { claudeCode: { toolName: 'Grep', parentToolUseId: 'task1' } } });
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 'g1', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'a.ts:1' } }] });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Gefunden: ' }, _meta: sub });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '1 TODO' }, _meta: sub });
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 'task1', status: 'in_progress', content: [{ type: 'content', content: { type: 'text', text: 'Finde alle TODOs' } }] });
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 'task1', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'Bericht: 1 TODO in a.ts' } }] });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Fertig.' } });
+    return { stopReason: 'end_turn' };
+  }
   if (text.includes('subagent')) {
     update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'ws1', title: 'Web search', kind: 'fetch', status: 'in_progress' });
     update(sessionId, {

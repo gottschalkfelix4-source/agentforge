@@ -47,6 +47,8 @@ export interface MessageItem {
   endedAt?: number;
   /** Duration reported by the agent adapter (survives history compaction). */
   durationMs?: number;
+  /** Sub-agent (tool id) that wrote this message — rendered inside its card. */
+  parentId?: string;
 }
 
 export interface ToolItem {
@@ -61,6 +63,11 @@ export interface ToolItem {
   output: string;
   outputTruncated: boolean;
   diffs?: FileDiff[];
+  /** Sub-agent (tool id) that made this call — rendered inside its card. */
+  parentId?: string;
+  /** Event timestamps (ms) of start and completion (sub-agent duration). */
+  startedAt?: number;
+  endedAt?: number;
 }
 
 export interface ApprovalItem {
@@ -301,6 +308,7 @@ function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
           startedAt: ts,
           endedAt: done ? ts : undefined,
           durationMs: ev.type === 'message.done' ? ev.durationMs : undefined,
+          ...(ev.parentId ? { parentId: ev.parentId } : {}),
         });
         return;
       }
@@ -325,6 +333,7 @@ function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
         t.title = ev.title;
         if (ev.input !== undefined) t.input = ev.input;
         if (ev.locations) t.locations = ev.locations;
+        if (ev.parentId) t.parentId = ev.parentId;
         return;
       }
       d.add({
@@ -338,6 +347,8 @@ function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
         locations: ev.locations,
         output: '',
         outputTruncated: false,
+        ...(ev.parentId ? { parentId: ev.parentId } : {}),
+        startedAt: ts,
       });
       return;
     }
@@ -371,6 +382,7 @@ function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
         }
       } else {
         t.status = ev.status;
+        t.endedAt ??= ts;
         if (ev.diffs) t.diffs = ev.diffs;
         if (ev.output) {
           // done.output is either the full output (superset of streamed chunks) or a final chunk

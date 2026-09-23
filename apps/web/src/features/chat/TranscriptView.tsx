@@ -4,6 +4,7 @@ import type { FileDiff, ImageInput, PlanEntry, QuestionResponse, ToolKind } from
 import {
   AlertTriangle,
   ArrowDown,
+  Bot,
   Brain,
   Check,
   ChevronRight,
@@ -32,7 +33,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { DiffList, DiffStat } from './DiffView';
 import { diffStats } from './diff';
 import { Markdown } from './Markdown';
-import { ThoughtView } from './ThoughtBlock';
+import { formatDuration, ThoughtView, useElapsed } from './ThoughtBlock';
 import type { ApprovalItem, MessageItem, NoticeItem, QuestionItem, ToolItem, TranscriptItem, TranscriptState, Turn, Usage } from './transcript';
 import { QuestionCard } from './QuestionCard';
 import { formatTokens } from './util';
@@ -43,6 +44,8 @@ interface Ctx {
   answer: (body: QuestionResponse) => Promise<unknown>;
 }
 const TranscriptCtx = React.createContext<Ctx>({ projectId: '', approve: async () => {}, answer: async () => {} });
+/** Items written by sub-agents, keyed by the sub-agent's tool id (rendered inside its card). */
+const ChildrenCtx = React.createContext<Map<string, TranscriptItem[]>>(new Map());
 
 // ---- user bubble ------------------------------------------------------------------
 
@@ -151,6 +154,7 @@ const TOOL_ICONS: Record<ToolKind, React.ComponentType<{ className?: string }>> 
   fetch: Globe,
   mcp: Plug,
   think: Brain,
+  agent: Bot,
   other: Wrench,
 };
 
@@ -283,6 +287,156 @@ const ToolCard = React.memo(function ToolCard({ item }: { item: ToolItem }) {
     </div>
   );
 });
+
+// ---- sub-agents ------------------------------------------------------------------------
+
+function agentInput(item: ToolItem): { prompt?: string; type?: string; model?: string } {
+  const input = item.input as Record<string, unknown> | undefined;
+  if (!input || typeof input !== 'object') return {};
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
+  return { prompt: str(input.prompt), type: str(input.subagent_type ?? input.subagentType ?? input.agent), model: str(input.model) };
+}
+
+/** Latest activity of a sub-agent, for the collapsed card header. */
+function activityLabel(it: TranscriptItem | undefined): string | null {
+  if (!it) return null;
+  if (it.kind === 'tool') return boardToolLabel(it.title) ?? (it.toolKind === 'exec' ? `$ ${commandOf(it) ?? it.title}` : it.title);
+  if (it.kind === 'message') {
+    const line = it.text.trim().split('\n').pop()?.trim();
+    return line ? (it.role === 'thought' ? `Denkt nach: ${line}` : line) : null;
+  }
+  return null;
+}
+
+/**
+ * Sub-agent (Claude Code Task/Agent tool, Codex spawned agent): its own steps, text and final report,
+ * grouped in one card. Collapsed it shows type, task, step count, duration and the latest activity.
+ */
+const SubagentCard = React.memo(function SubagentCard({ item }: { item: ToolItem }) {
+  const { projectId } = React.useContext(TranscriptCtx);
+  const children = React.useContext(ChildrenCtx).get(item.id) ?? EMPTY_ITEMS;
+  const running = item.status === 'running' || item.status === 'pending';
+  const [open, setOpen] = React.useState(false);
+  const [promptOpen, setPromptOpen] = React.useState(false);
+  const elapsed = useElapsed(running, item.startedAt);
+  const { prompt, type, model } = agentInput(item);
+  const steps = children.filter((c) => c.kind === 'tool').length;
+  const duration = running ? elapsed : item.startedAt !== undefined && item.endedAt !== undefined ? item.endedAt - item.startedAt : undefined;
+  const latest = running ? activityLabel(children[children.length - 1]) : null;
+  const result = !running ? item.output.trim() : '';
+
+  const meta: string[] = [];
+  if (steps) meta.push(`${steps} ${steps === 1 ? 'Schritt' : 'Schritte'}`);
+  if (duration !== undefined && duration >= 1000) meta.push(formatDuration(duration));
+
+  return (
+    <div
+      className={cn(
+        'overflow-hidden rounded-lg border bg-panel',
+        item.status === 'failed' ? 'border-destructive/40' : running ? 'border-brand/40' : 'border-border',
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-start gap-2 px-2.5 py-1.5 text-left text-[13px] hover:bg-accent/40"
+      >
+        <Bot className={cn('mt-0.5 size-3.5 shrink-0', running ? 'text-brand' : 'text-muted-foreground')} />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            {type && (
+              <span className="shrink-0 rounded bg-muted px-1.5 py-px font-mono text-[10.5px] text-muted-foreground">{type}</span>
+            )}
+            <span className="truncate font-medium" title={item.title}>
+              {item.title || 'Subagent'}
+            </span>
+          </div>
+          {(meta.length > 0 || (latest && !open)) && (
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
+              {meta.length > 0 && <span className="shrink-0 tabular-nums">{meta.join(' · ')}</span>}
+              {latest && !open && (
+                <span className="thinking-shimmer min-w-0 truncate font-mono" title={latest}>
+                  {meta.length > 0 && '· '}
+                  {latest}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <span className="mt-0.5 shrink-0">
+          <ToolStatusIcon status={item.status} />
+        </span>
+        <ChevronRight className={cn('mt-1 size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
+      </button>
+
+      {open && (
+        <div className="border-t border-border/70 px-3 py-2">
+          {(prompt || model) && (
+            <div className="mb-2">
+              <button
+                type="button"
+                onClick={() => setPromptOpen((o) => !o)}
+                className="flex cursor-pointer items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground"
+              >
+                <ChevronRight className={cn('size-3 transition-transform', promptOpen && 'rotate-90')} />
+                Auftrag{model ? ` · ${model}` : ''}
+              </button>
+              {promptOpen && prompt && (
+                <div className="mt-1 ml-[5px] border-l-2 border-border pl-3 text-muted-foreground">
+                  <Markdown text={prompt} projectId={projectId} className="text-[12.5px] leading-relaxed" />
+                </div>
+              )}
+            </div>
+          )}
+          {children.length > 0 ? (
+            <div className="ml-[5px] border-l-2 border-border pl-3">
+              {children.map((c, i) => (
+                <div key={c.key} className={rowSpacing(children[i - 1], c)}>
+                  <Row item={c} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            running && <div className="text-[12px] text-muted-foreground">Startet…</div>
+          )}
+          {result && (
+            <div className="mt-2.5">
+              <div className="mb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                {item.status === 'failed' ? 'Fehler' : 'Ergebnis'}
+              </div>
+              <div className="max-h-96 overflow-y-auto rounded-md border border-border/70 bg-background/60 px-3 py-2">
+                <Markdown text={result} projectId={projectId} className="text-[13px] leading-relaxed" />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+const EMPTY_ITEMS: TranscriptItem[] = [];
+
+/** Splits turn items into top-level rows and sub-agent children (by the sub-agent's tool id). */
+function groupSubagentItems(items: TranscriptItem[]): { top: TranscriptItem[]; children: Map<string, TranscriptItem[]> } {
+  const agents = new Set<string>();
+  for (const it of items) if (it.kind === 'tool' && it.toolKind === 'agent') agents.add(it.id);
+  const children = new Map<string, TranscriptItem[]>();
+  if (agents.size === 0) return { top: items, children };
+  const top: TranscriptItem[] = [];
+  for (const it of items) {
+    const parent = (it.kind === 'tool' || it.kind === 'message') && it.parentId && agents.has(it.parentId) ? it.parentId : null;
+    if (!parent) {
+      top.push(it);
+      continue;
+    }
+    const list = children.get(parent);
+    if (list) list.push(it);
+    else children.set(parent, [it]);
+  }
+  return { top, children };
+}
 
 // ---- approvals ---------------------------------------------------------------------
 
@@ -481,6 +635,7 @@ const Row = React.memo(function Row({ item }: { item: TranscriptItem }) {
     case 'message':
       return item.role === 'thought' ? <ThoughtBlock item={item} /> : <AssistantMessage item={item} />;
     case 'tool':
+      if (item.toolKind === 'agent') return <SubagentCard item={item} />;
       return item.toolKind === 'think' ? <ThinkTool item={item} /> : <ToolCard item={item} />;
     case 'approval':
       return <ApprovalCard item={item} />;
@@ -506,25 +661,28 @@ function rowSpacing(prev: TranscriptItem | undefined, cur: TranscriptItem): stri
 
 const TurnView = React.memo(function TurnView({ turn, isLast }: { turn: Turn; isLast: boolean }) {
   const running = isLast && !turn.done;
+  const { top, children } = React.useMemo(() => groupSubagentItems(turn.items), [turn.items]);
   return (
-    <section className="relative">
-      {turn.plan && turn.plan.length > 0 && <PlanCard entries={turn.plan} />}
-      {turn.items.map((it, i) => (
-        <div
-          key={it.key}
-          className={rowSpacing(turn.items[i - 1], it)}
-          style={!isLast ? { contentVisibility: 'auto', containIntrinsicSize: 'auto 48px' } : undefined}
-        >
-          <Row item={it} />
-        </div>
-      ))}
-      {turn.diff && turn.diff.length > 0 && (
-        <div className="mt-3.5">
-          <TurnDiffSummary files={turn.diff} />
-        </div>
-      )}
-      {!running && turn.usage && <UsageLine usage={turn.usage} className="mt-2" />}
-    </section>
+    <ChildrenCtx.Provider value={children}>
+      <section className="relative">
+        {turn.plan && turn.plan.length > 0 && <PlanCard entries={turn.plan} />}
+        {top.map((it, i) => (
+          <div
+            key={it.key}
+            className={rowSpacing(top[i - 1], it)}
+            style={!isLast ? { contentVisibility: 'auto', containIntrinsicSize: 'auto 48px' } : undefined}
+          >
+            <Row item={it} />
+          </div>
+        ))}
+        {turn.diff && turn.diff.length > 0 && (
+          <div className="mt-3.5">
+            <TurnDiffSummary files={turn.diff} />
+          </div>
+        )}
+        {!running && turn.usage && <UsageLine usage={turn.usage} className="mt-2" />}
+      </section>
+    </ChildrenCtx.Provider>
   );
 });
 

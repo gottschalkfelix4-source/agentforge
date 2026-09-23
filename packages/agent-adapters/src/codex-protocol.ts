@@ -59,7 +59,24 @@ export type ThreadItem =
   | { type: 'dynamicToolCall'; id: string; tool: string; arguments: unknown; status: string; success: boolean | null }
   | { type: 'webSearch'; id: string; query?: string }
   | { type: 'imageView'; id: string; path: string }
+  | CollabAgentToolCallItem
   | { type: string; id: string };
+
+export type CollabAgentTool = 'spawnAgent' | 'sendInput' | 'resumeAgent' | 'wait' | 'closeAgent' | 'sendMessage' | 'followupTask' | 'interruptAgent' | 'listAgents';
+export type CollabAgentStatus = 'pendingInit' | 'running' | 'interrupted' | 'completed' | 'errored' | 'shutdown' | 'notFound';
+/** Multi-agent ("collab") tool call: spawning / messaging / waiting for sub-agents, which run in their own threads. */
+export interface CollabAgentToolCallItem {
+  type: 'collabAgentToolCall';
+  id: string;
+  tool: CollabAgentTool;
+  status: 'inProgress' | 'completed' | 'failed' | 'interrupted';
+  senderThreadId: string;
+  /** For spawnAgent: the new sub-agent's thread. */
+  receiverThreadIds: string[];
+  prompt: string | null;
+  model: string | null;
+  agentsStates: Record<string, { status: CollabAgentStatus; message: string | null } | undefined>;
+}
 
 export interface ItemNotification { item: ThreadItem; threadId: string; turnId: string }
 export interface DeltaNotification { threadId: string; turnId: string; itemId: string; delta: string }
