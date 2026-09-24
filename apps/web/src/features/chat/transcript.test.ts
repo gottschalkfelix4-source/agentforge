@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentEvent, SessionEventRecord } from '@vibe/shared';
-import { emptyTranscript, ingest, MAX_TOOL_OUTPUT, pendingApprovals, type MessageItem, type ToolItem } from './transcript';
+import { boardToolLabel, emptyTranscript, ingest, MAX_TOOL_OUTPUT, pendingApprovals, type MessageItem, type ToolItem } from './transcript';
 
 let seqCounter = 0;
 const rec = (event: AgentEvent, seq = ++seqCounter): SessionEventRecord => ({ seq, ts: new Date(0).toISOString(), event });
@@ -321,5 +321,16 @@ describe('sub-agents', () => {
     expect(items.find((i) => i.key === 'tool:g1')).toMatchObject({ parentId: 'a1' });
     expect(items.find((i) => i.key === 'msg:assistant:cm')).toMatchObject({ parentId: 'a1', text: 'Gefunden' });
     expect((items.find((i) => i.key === 'msg:assistant:m') as MessageItem).parentId).toBeUndefined();
+  });
+});
+
+describe('boardToolLabel', () => {
+  it('recognizes the Agentforge board tools however the agent prefixes them', () => {
+    // Regression: `subtask…` tools were missed because the separator class contained a literal `s`.
+    expect(boardToolLabel('mcp__agentforge__subtask_update')).toBe('Unteraufgabe aktualisiert');
+    expect(boardToolLabel('mcp__agentforge__subtasks_add')).toBe('Unteraufgaben angelegt');
+    expect(boardToolLabel('agentforge_task_set_status')).toBe('Aufgaben-Status geändert');
+    expect(boardToolLabel('agentforge: notes_list')).toBe('Notizen gelesen');
+    expect(boardToolLabel('Read src/App.tsx')).toBeNull();
   });
 });

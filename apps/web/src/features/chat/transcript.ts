@@ -537,3 +537,28 @@ export function pendingApprovals(s: TranscriptState): ApprovalItem[] {
   for (const it of last.items) if (it.kind === 'approval' && !it.resolvedOptionId) out.push(it);
   return out;
 }
+
+/** Friendly labels for the Agentforge board tools (agents prefix them differently: mcp__agentforge__x, agentforge_x, …). */
+const BOARD_TOOL_LABELS: Record<string, string> = {
+  project_overview: 'Board-Überblick gelesen',
+  current_task: 'Aktuelle Aufgabe gelesen',
+  tasks_list: 'Aufgaben gelesen',
+  task_get: 'Aufgabe gelesen',
+  task_create: 'Aufgabe angelegt',
+  task_update: 'Aufgabe bearbeitet',
+  task_set_status: 'Aufgaben-Status geändert',
+  subtasks_add: 'Unteraufgaben angelegt',
+  subtask_update: 'Unteraufgabe aktualisiert',
+  milestones_list: 'Roadmap gelesen',
+  milestone_create: 'Meilenstein angelegt',
+  milestone_update: 'Meilenstein bearbeitet',
+  notes_list: 'Notizen gelesen',
+  note_get: 'Notiz gelesen',
+  note_create: 'Notiz angelegt',
+  note_update: 'Notiz bearbeitet',
+};
+
+export function boardToolLabel(title: string): string | null {
+  const m = /agentforge(?:__|[_.:/\s-])+([a-z_]+)/i.exec(title);
+  return m ? (BOARD_TOOL_LABELS[m[1]!.toLowerCase()] ?? null) : null;
+}

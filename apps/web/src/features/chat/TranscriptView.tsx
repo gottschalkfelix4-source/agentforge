@@ -32,7 +32,7 @@ import { DiffList, DiffStat } from './DiffView';
 import { diffStats } from './diff';
 import { Markdown } from './Markdown';
 import { formatDuration, ThoughtView, useElapsed } from './ThoughtBlock';
-import type { ApprovalItem, MessageItem, NoticeItem, QuestionItem, ToolItem, TranscriptItem, TranscriptState, Turn, Usage } from './transcript';
+import { boardToolLabel, type ApprovalItem, type MessageItem, type NoticeItem, type QuestionItem, type ToolItem, type TranscriptItem, type TranscriptState, type Turn, type Usage } from './transcript';
 import { QuestionCard } from './QuestionCard';
 import { formatTokens } from './util';
 
@@ -120,31 +120,6 @@ function ThinkTool({ item }: { item: ToolItem }) {
 }
 
 // ---- tools ------------------------------------------------------------------------------
-
-/** Friendly labels for the Agentforge board tools (agents prefix them differently: mcp__agentforge__x, agentforge_x, …). */
-const BOARD_TOOL_LABELS: Record<string, string> = {
-  project_overview: 'Board-Überblick gelesen',
-  current_task: 'Aktuelle Aufgabe gelesen',
-  tasks_list: 'Aufgaben gelesen',
-  task_get: 'Aufgabe gelesen',
-  task_create: 'Aufgabe angelegt',
-  task_update: 'Aufgabe bearbeitet',
-  task_set_status: 'Aufgaben-Status geändert',
-  subtasks_add: 'Unteraufgaben angelegt',
-  subtask_update: 'Unteraufgabe aktualisiert',
-  milestones_list: 'Roadmap gelesen',
-  milestone_create: 'Meilenstein angelegt',
-  milestone_update: 'Meilenstein bearbeitet',
-  notes_list: 'Notizen gelesen',
-  note_get: 'Notiz gelesen',
-  note_create: 'Notiz angelegt',
-  note_update: 'Notiz bearbeitet',
-};
-
-function boardToolLabel(title: string): string | null {
-  const m = /agentforge(?:__|[_.:/s-])+([a-z_]+)/i.exec(title);
-  return m ? (BOARD_TOOL_LABELS[m[1]!.toLowerCase()] ?? null) : null;
-}
 
 const TOOL_ICONS: Record<ToolKind, React.ComponentType<{ className?: string }>> = {
   exec: SquareTerminal,
