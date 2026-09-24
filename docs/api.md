@@ -216,6 +216,11 @@ Types in `packages/shared/src/pm.ts`. Every mutation publishes `{type:'pm.change
 | PATCH | /api/tasks/:tid | Partial<TaskInput> (column change → end of the new column) | Task |
 | DELETE | /api/tasks/:tid | – | `{ok:true}` (the GitHub issue is left untouched) |
 | POST | /api/tasks/:tid/move | MoveTaskRequest `{column, beforeId?, afterId?}` – `beforeId` = card directly above, `afterId` = directly below; `beforeId` wins if both are stale; none → end of column | Task |
+| POST | /api/tasks/:tid/subtasks | `{title}` or `{titles: string[]}` (appended in order) | Task (incl. `subtasks: {id, title, done}[]`) |
+| POST | /api/tasks/:tid/subtasks/order | `{ids}` – new order (missing ids keep their order at the end) | Task |
+| PATCH / DELETE | /api/subtasks/:sid | `{title?, done?}` / – | Task (subtasks are local, not synced to GitHub) |
+| GET | /api/sessions/:sid/tasks | – | `{taskIds, runTaskId}` – board tasks shown in the chat's todo bar (task run + linked; agents link tasks they set to in_progress/review or give subtasks) |
+| PUT / DELETE | /api/sessions/:sid/tasks/:tid | – | `{ok:true}` (link / unlink; the task run's task cannot be unlinked) |
 | GET / POST | /api/projects/:id/labels | – / `{name, color?}` (hex without `#`, auto color if omitted) | Label[] / Label (409 on duplicate name) |
 | PATCH / DELETE | /api/labels/:lid | `{name?, color?}` / – | Label / `{ok:true}` |
 | GET / POST | /api/projects/:id/milestones | – / MilestoneInput (`dueOn` = `YYYY-MM-DD`) | Milestone[] (sorted by due date, with `progress {total, done}`) / Milestone |

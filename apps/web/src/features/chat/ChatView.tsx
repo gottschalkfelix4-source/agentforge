@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import type { AgentSession } from '@vibe/shared';
 import {
   AlertTriangle,
+  KanbanSquare,
   Loader2,
   MoreHorizontal,
   PanelLeftClose,
@@ -36,6 +37,7 @@ import { NewSession } from './NewSession';
 import { SessionList } from './SessionList';
 import { dropSessionStream, useTranscript } from './session-stream';
 import { ThinkingIndicator } from './ThoughtBlock';
+import { TodoDock, todoDockEvents } from './TodoDock';
 import { TranscriptView, UsageLine, UserBubble } from './TranscriptView';
 import type { SessionInfo, TranscriptState } from './transcript';
 import { AgentAvatar, StatusDot, STATUS_LABEL, usePersistentState } from './util';
@@ -246,6 +248,9 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
               <DropdownMenuItem onSelect={reload}>
                 <RefreshCw /> Verlauf neu laden
               </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => todoDockEvents.dispatchEvent(new Event('link'))}>
+                <KanbanSquare /> Board-Aufgabe verknüpfen
+              </DropdownMenuItem>
               {stopped || status === 'error' ? (
                 <DropdownMenuItem onSelect={() => void resume()}>
                   <Play /> Fortsetzen
@@ -319,6 +324,7 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
               </Button>
             </div>
           )}
+          <TodoDock projectId={projectId} sessionId={session.id} turns={state.turns} />
           <Composer
             draftKey={session.id}
             disabled={stopped}

@@ -10,6 +10,7 @@ import { AgentTools } from '../pm/agent-tools.js';
 import { TaskRunService, type WsdLike } from '../pm/runs.js';
 import { PmSync } from '../pm/sync.js';
 import { SessionService, toSession, type SessionRow } from '../sessions/service.js';
+import { HttpError } from '../workspaces/manager.js';
 
 // Phase 5 – project management: tasks (kanban), labels, milestones, notes, agent task runs, GitHub issue sync.
 
@@ -43,6 +44,9 @@ const milestoneInput = z.object({
 const noteInput = z.object({ title: z.string().trim().max(200).optional(), body: z.string().max(500_000).optional(), pinned: z.boolean().optional() });
 const runInput = z.object({ agentId: z.string().min(1), profileId: z.string().nullish(), autoPr: z.boolean().optional() });
 const settingsInput = z.object({ syncEnabled: z.boolean().optional(), syncCreateIssues: z.boolean().optional() });
+const subtaskTitle = z.string().trim().min(1).max(300);
+const subtasksInput = z.union([z.object({ title: subtaskTitle }), z.object({ titles: z.array(subtaskTitle).min(1).max(50) })]);
+const subtaskPatch = z.object({ title: subtaskTitle.optional(), done: z.boolean().optional() });
 
 type P = { Params: { id: string } };
 
@@ -163,6 +167,63 @@ export async function pmRoutes(app: FastifyInstance, ctx: AppContext) {
     const t = repo.moveTask(req.params.tid, body.column, body.beforeId, body.afterId);
     publishPm(t.project_id, 'task');
     return repo.task(t.id);
+  });
+
+  // ---- subtasks (checklist of a task) ---------------------------------------------------------------
+
+  app.post<{ Params: { tid: string } }>('/api/tasks/:tid/subtasks', async (req) => {
+    const b = subtasksInput.parse(req.body);
+    const pid = projectOfTask(req.params.tid);
+    repo.addSubtasks(req.params.tid, 'titles' in b ? b.titles : [b.title]);
+    publishPm(pid, 'task');
+    return repo.task(req.params.tid);
+  });
+
+  app.post<{ Params: { tid: string } }>('/api/tasks/:tid/subtasks/order', async (req) => {
+    const pid = projectOfTask(req.params.tid);
+    repo.reorderSubtasks(req.params.tid, z.object({ ids: z.array(z.string()).max(500) }).parse(req.body).ids);
+    publishPm(pid, 'task');
+    return repo.task(req.params.tid);
+  });
+
+  app.patch<{ Params: { sid: string } }>('/api/subtasks/:sid', async (req) => {
+    const s = repo.updateSubtask(req.params.sid, subtaskPatch.parse(req.body));
+    publishPm(projectOfTask(s.task_id), 'task');
+    return repo.task(s.task_id);
+  });
+
+  app.delete<{ Params: { sid: string } }>('/api/subtasks/:sid', async (req) => {
+    const s = repo.deleteSubtask(req.params.sid);
+    publishPm(projectOfTask(s.task_id), 'task');
+    return repo.task(s.task_id);
+  });
+
+  // ---- board tasks of a chat session (shown in the chat's todo bar) -------------------------------
+
+  const sessionProject = (sid: string) => {
+    const r = ctx.db.get<{ project_id: string }>('SELECT project_id FROM agent_sessions WHERE id = ?', sid);
+    if (!r) throw new HttpError(404, 'not_found', 'Session nicht gefunden');
+    return r.project_id;
+  };
+
+  app.get<{ Params: { sid: string } }>('/api/sessions/:sid/tasks', async (req) => {
+    sessionProject(req.params.sid);
+    return { taskIds: repo.sessionTaskIds(req.params.sid), runTaskId: repo.runBySession(req.params.sid)?.task_id ?? null };
+  });
+
+  app.put<{ Params: { sid: string; tid: string } }>('/api/sessions/:sid/tasks/:tid', async (req) => {
+    const pid = sessionProject(req.params.sid);
+    if (projectOfTask(req.params.tid) !== pid) throw new HttpError(400, 'invalid_task', 'Aufgabe gehört nicht zu diesem Projekt');
+    repo.linkSessionTask(req.params.sid, req.params.tid);
+    publishPm(pid, 'task');
+    return { ok: true };
+  });
+
+  app.delete<{ Params: { sid: string; tid: string } }>('/api/sessions/:sid/tasks/:tid', async (req) => {
+    const pid = sessionProject(req.params.sid);
+    repo.unlinkSessionTask(req.params.sid, req.params.tid);
+    publishPm(pid, 'task');
+    return { ok: true };
   });
 
   // ---- labels ---------------------------------------------------------------------------------

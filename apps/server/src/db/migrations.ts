@@ -221,4 +221,24 @@ export const migrations: string[] = [
   ALTER TABLE agent_sessions ADD COLUMN provider_model TEXT;
   ALTER TABLE agent_sessions ADD COLUMN provider_models_json TEXT;
   `,
+
+  /* v5: subtasks (checklists) of board tasks; board tasks a chat session works on */ `
+  CREATE TABLE task_subtasks (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX task_subtasks_task ON task_subtasks(task_id, position);
+
+  CREATE TABLE session_tasks (
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, task_id)
+  );
+  `,
 ];

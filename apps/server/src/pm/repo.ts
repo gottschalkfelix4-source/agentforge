@@ -1,4 +1,4 @@
-import type { Label, Milestone, Note, SyncLogEntry, Task, TaskColumn, TaskRun, TaskRunStatus } from '@vibe/shared';
+import type { Label, Milestone, Note, Subtask, SyncLogEntry, Task, TaskColumn, TaskRun, TaskRunStatus } from '@vibe/shared';
 import { ulid } from 'ulid';
 import { nowIso, type Db } from '../db/index.js';
 import { bus } from '../events.js';
@@ -72,7 +72,19 @@ export interface RunRow {
   profile_id: string | null;
 }
 
+export interface SubtaskRow {
+  id: string;
+  task_id: string;
+  title: string;
+  done: number;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
 type SqlPatch = Record<string, string | number | null | undefined>;
+
+const toSubtask = (r: SubtaskRow): Subtask => ({ id: r.id, title: r.title, done: !!r.done });
 
 export const toLabel = (r: LabelRow): Label => ({ id: r.id, projectId: r.project_id, name: r.name, color: r.color });
 
@@ -307,19 +319,33 @@ export class PmRepo {
     return out;
   }
 
+  private subtasksOfTasks(projectId: string): Map<string, Subtask[]> {
+    const out = new Map<string, Subtask[]>();
+    for (const r of this.db.all<SubtaskRow>(
+      'SELECT s.* FROM task_subtasks s JOIN tasks t ON t.id = s.task_id WHERE t.project_id = ? ORDER BY s.position, s.id',
+      projectId,
+    )) {
+      const list = out.get(r.task_id) ?? [];
+      list.push(toSubtask(r));
+      out.set(r.task_id, list);
+    }
+    return out;
+  }
+
   tasks(projectId: string): Task[] {
     const labels = this.labelsOfTasks(projectId);
     const runs = this.latestRuns(projectId);
-    return this.taskRows(projectId).map((r) => this.toTask(r, labels.get(r.id) ?? [], runs.get(r.id)));
+    const subtasks = this.subtasksOfTasks(projectId);
+    return this.taskRows(projectId).map((r) => this.toTask(r, labels.get(r.id) ?? [], runs.get(r.id), subtasks.get(r.id)));
   }
 
   task(id: string): Task {
     const r = this.taskRow(id);
     const run = this.db.get<RunRow>('SELECT * FROM task_runs WHERE task_id = ? ORDER BY created_at DESC, id DESC LIMIT 1', id);
-    return this.toTask(r, this.taskLabelRows(id).map(toLabel), run);
+    return this.toTask(r, this.taskLabelRows(id).map(toLabel), run, this.subtasks(id));
   }
 
-  private toTask(r: TaskRow, labels: Label[], run?: RunRow): Task {
+  private toTask(r: TaskRow, labels: Label[], run?: RunRow, subtasks?: Subtask[]): Task {
     return {
       id: r.id,
       projectId: r.project_id,
@@ -335,6 +361,7 @@ export class PmRepo {
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       latestRun: run ? toRun(run) : null,
+      subtasks: subtasks ?? [],
     };
   }
 
@@ -424,6 +451,79 @@ export class PmRepo {
     const r = this.taskRow(id);
     this.db.run('DELETE FROM tasks WHERE id = ?', id);
     return r;
+  }
+
+  // ---- subtasks ---------------------------------------------------------------------------------
+  // Local checklist items (not synced to GitHub); changing them does not touch the task's updated_at,
+  // so the issue sync does not push unchanged tasks.
+
+  subtasks(taskId: string): Subtask[] {
+    return this.db.all<SubtaskRow>('SELECT * FROM task_subtasks WHERE task_id = ? ORDER BY position, id', taskId).map(toSubtask);
+  }
+
+  subtaskRow(id: string): SubtaskRow {
+    const r = this.db.get<SubtaskRow>('SELECT * FROM task_subtasks WHERE id = ?', id);
+    if (!r) throw new HttpError(404, 'not_found', 'Unteraufgabe nicht gefunden');
+    return r;
+  }
+
+  addSubtasks(taskId: string, titles: string[]): SubtaskRow[] {
+    this.taskRow(taskId);
+    const now = nowIso();
+    const ids: string[] = [];
+    this.db.tx(() => {
+      let pos = Number(this.db.get<{ p: number | null }>('SELECT MAX(position) AS p FROM task_subtasks WHERE task_id = ?', taskId)?.p ?? -1);
+      for (const title of titles) {
+        const id = ulid();
+        ids.push(id);
+        this.db.insert('task_subtasks', { id, task_id: taskId, title, done: 0, position: ++pos, created_at: now, updated_at: now });
+      }
+    });
+    return ids.map((id) => this.subtaskRow(id));
+  }
+
+  updateSubtask(id: string, patch: { title?: string; done?: boolean }): SubtaskRow {
+    this.subtaskRow(id);
+    this.db.update('task_subtasks', id, {
+      title: patch.title,
+      done: patch.done === undefined ? undefined : patch.done ? 1 : 0,
+      updated_at: nowIso(),
+    });
+    return this.subtaskRow(id);
+  }
+
+  deleteSubtask(id: string): SubtaskRow {
+    const r = this.subtaskRow(id);
+    this.db.run('DELETE FROM task_subtasks WHERE id = ?', id);
+    return r;
+  }
+
+  /** New order of a task's subtasks (ids not listed keep their relative order at the end). */
+  reorderSubtasks(taskId: string, ids: string[]) {
+    const current = this.db.all<{ id: string }>('SELECT id FROM task_subtasks WHERE task_id = ? ORDER BY position, id', taskId).map((r) => r.id);
+    const order = [...ids.filter((id) => current.includes(id)), ...current.filter((id) => !ids.includes(id))];
+    this.db.tx(() => order.forEach((id, i) => this.db.run('UPDATE task_subtasks SET position = ? WHERE id = ?', i, id)));
+  }
+
+  // ---- tasks of chat sessions -------------------------------------------------------------------
+
+  /** Board tasks a chat session works on: its task run's task plus explicitly linked ones (oldest first). */
+  sessionTaskIds(sessionId: string): string[] {
+    const ids = this.db
+      .all<{ task_id: string }>('SELECT task_id FROM session_tasks WHERE session_id = ? ORDER BY created_at, task_id', sessionId)
+      .map((r) => r.task_id);
+    const run = this.runBySession(sessionId);
+    return run && !ids.includes(run.task_id) ? [run.task_id, ...ids] : ids;
+  }
+
+  /** Returns true when the link is new. */
+  linkSessionTask(sessionId: string, taskId: string): boolean {
+    const r = this.db.run('INSERT OR IGNORE INTO session_tasks (session_id, task_id, created_at) VALUES (?, ?, ?)', sessionId, taskId, nowIso());
+    return Number(r.changes) > 0;
+  }
+
+  unlinkSessionTask(sessionId: string, taskId: string) {
+    this.db.run('DELETE FROM session_tasks WHERE session_id = ? AND task_id = ?', sessionId, taskId);
   }
 
   // ---- notes ----------------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { toast } from 'sonner';
-import type { FileDiff, ImageInput, PlanEntry, QuestionResponse, ToolKind } from '@vibe/shared';
+import type { FileDiff, ImageInput, QuestionResponse, ToolKind } from '@vibe/shared';
 import {
   AlertTriangle,
   ArrowDown,
@@ -9,7 +9,6 @@ import {
   Check,
   ChevronRight,
   Circle,
-  CircleDot,
   FilePen,
   FileSearch,
   FileText,
@@ -17,7 +16,6 @@ import {
   Info,
   KanbanSquare,
   Globe,
-  ListChecks,
   Loader2,
   Plug,
   ShieldAlert,
@@ -132,6 +130,8 @@ const BOARD_TOOL_LABELS: Record<string, string> = {
   task_create: 'Aufgabe angelegt',
   task_update: 'Aufgabe bearbeitet',
   task_set_status: 'Aufgaben-Status geändert',
+  subtasks_add: 'Unteraufgaben angelegt',
+  subtask_update: 'Unteraufgabe aktualisiert',
   milestones_list: 'Roadmap gelesen',
   milestone_create: 'Meilenstein angelegt',
   milestone_update: 'Meilenstein bearbeitet',
@@ -509,55 +509,6 @@ const ApprovalCard = React.memo(function ApprovalCard({ item }: { item: Approval
 
 // ---- plan, usage, turn diff -------------------------------------------------------------
 
-function PlanCard({ entries }: { entries: PlanEntry[] }) {
-  const done = entries.filter((e) => e.status === 'completed').length;
-  const [open, setOpen] = React.useState(true);
-  return (
-    <div className="sticky top-0 z-10 -mx-1 bg-background/85 px-1 pt-1 pb-2 backdrop-blur-sm">
-      <div className="rounded-xl border border-border bg-panel/95 shadow-sm">
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-[12.5px]"
-        >
-          <ListChecks className="size-3.5 text-muted-foreground" />
-          <span className="font-medium">Plan</span>
-          <span className="text-muted-foreground tabular-nums">
-            {done}/{entries.length}
-          </span>
-          <div className="mx-2 h-1 flex-1 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${entries.length ? (done / entries.length) * 100 : 0}%` }} />
-          </div>
-          <ChevronRight className={cn('size-3.5 text-muted-foreground transition-transform', open && 'rotate-90')} />
-        </button>
-        {open && (
-          <ul className="max-h-56 overflow-y-auto border-t border-border px-3 py-1.5">
-            {entries.map((e, i) => (
-              <li key={i} className="flex items-start gap-2 py-0.5 text-[12.5px]">
-                {e.status === 'completed' ? (
-                  <Check className="mt-0.5 size-3.5 shrink-0 text-success" />
-                ) : e.status === 'in_progress' ? (
-                  <CircleDot className="mt-0.5 size-3.5 shrink-0 animate-pulse text-brand" />
-                ) : (
-                  <Circle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
-                )}
-                <span
-                  className={cn(
-                    e.status === 'completed' && 'text-muted-foreground line-through decoration-muted-foreground/40',
-                    e.status === 'in_progress' && 'font-medium',
-                  )}
-                >
-                  {e.text}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function TurnDiffSummary({ files }: { files: FileDiff[] }) {
   const [open, setOpen] = React.useState(false);
   const stats = React.useMemo(
@@ -665,7 +616,6 @@ const TurnView = React.memo(function TurnView({ turn, isLast }: { turn: Turn; is
   return (
     <ChildrenCtx.Provider value={children}>
       <section className="relative">
-        {turn.plan && turn.plan.length > 0 && <PlanCard entries={turn.plan} />}
         {top.map((it, i) => (
           <div
             key={it.key}

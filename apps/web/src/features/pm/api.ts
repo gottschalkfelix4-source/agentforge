@@ -10,6 +10,7 @@ import type {
   PmSettings,
   PmSyncResult,
   RunTaskRequest,
+  SubtaskInput,
   SyncLogEntry,
   Task,
   TaskColumn,
@@ -20,6 +21,11 @@ import { request } from '@/lib/api';
 import { controlSocket } from '@/lib/ws';
 
 type Ok = { ok: true };
+/** Board tasks a chat session works on (`runTaskId`: the task the session was started for, cannot be unlinked). */
+export interface SessionTasks {
+  taskIds: string[];
+  runTaskId: string | null;
+}
 const p = (id: string) => `/projects/${encodeURIComponent(id)}`;
 const e = encodeURIComponent;
 
@@ -29,6 +35,15 @@ export const pmApi = {
   updateTask: (tid: string, body: Partial<TaskInput>) => request<Task>(`/tasks/${e(tid)}`, { method: 'PATCH', body }),
   deleteTask: (tid: string) => request<Ok>(`/tasks/${e(tid)}`, { method: 'DELETE' }),
   moveTask: (tid: string, body: MoveTaskRequest) => request<Task>(`/tasks/${e(tid)}/move`, { method: 'POST', body }),
+
+  addSubtasks: (tid: string, titles: string[]) => request<Task>(`/tasks/${e(tid)}/subtasks`, { method: 'POST', body: { titles } }),
+  updateSubtask: (sid: string, body: SubtaskInput) => request<Task>(`/subtasks/${e(sid)}`, { method: 'PATCH', body }),
+  deleteSubtask: (sid: string) => request<Task>(`/subtasks/${e(sid)}`, { method: 'DELETE' }),
+  orderSubtasks: (tid: string, ids: string[]) => request<Task>(`/tasks/${e(tid)}/subtasks/order`, { method: 'POST', body: { ids } }),
+
+  sessionTasks: (sessionId: string) => request<SessionTasks>(`/sessions/${e(sessionId)}/tasks`),
+  linkSessionTask: (sessionId: string, tid: string) => request<Ok>(`/sessions/${e(sessionId)}/tasks/${e(tid)}`, { method: 'PUT', body: {} }),
+  unlinkSessionTask: (sessionId: string, tid: string) => request<Ok>(`/sessions/${e(sessionId)}/tasks/${e(tid)}`, { method: 'DELETE' }),
 
   labels: (projectId: string) => request<Label[]>(`${p(projectId)}/labels`),
   createLabel: (projectId: string, body: { name: string; color?: string }) => request<Label>(`${p(projectId)}/labels`, { method: 'POST', body }),
@@ -66,6 +81,7 @@ export const pmKeys = {
   runs: (projectId: string, tid: string) => ['pm', projectId, 'runs', tid] as const,
   settings: (projectId: string) => ['pm', projectId, 'settings'] as const,
   syncLog: (projectId: string) => ['pm', projectId, 'sync-log'] as const,
+  sessionTasks: (projectId: string, sessionId: string) => ['pm', projectId, 'session-tasks', sessionId] as const,
 };
 
 export const useTasks = (projectId: string) => useQuery({ queryKey: pmKeys.tasks(projectId), queryFn: () => pmApi.tasks(projectId) });
@@ -77,6 +93,8 @@ export const useRuns = (projectId: string, tid: string | null) =>
   useQuery({ queryKey: pmKeys.runs(projectId, tid ?? ''), queryFn: () => pmApi.runs(tid!), enabled: !!tid });
 export const usePmSettings = (projectId: string) =>
   useQuery({ queryKey: pmKeys.settings(projectId), queryFn: () => pmApi.settings(projectId), staleTime: 30_000 });
+export const useSessionTasks = (projectId: string, sessionId: string) =>
+  useQuery({ queryKey: pmKeys.sessionTasks(projectId, sessionId), queryFn: () => pmApi.sessionTasks(sessionId) });
 export const useSyncLog = (projectId: string, enabled: boolean) =>
   useQuery({ queryKey: pmKeys.syncLog(projectId), queryFn: () => pmApi.syncLog(projectId), enabled });
 
@@ -116,6 +134,7 @@ export function usePmLive(projectId: string) {
           later(pmKeys.tasks(projectId));
         } else {
           later(pmKeys.tasks(projectId));
+          later(['pm', projectId, 'session-tasks']);
           later(pmKeys.milestones(projectId));
           if (ev.entity === 'run') later(['pm', projectId, 'runs']);
           later(pmKeys.settings(projectId));

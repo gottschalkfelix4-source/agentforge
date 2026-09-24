@@ -27,6 +27,13 @@ export interface TaskRun {
   updatedAt: string;
 }
 
+/** Checklist item of a board task ("Unteraufgabe"). */
+export interface Subtask {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
 export interface Task {
   id: string;
   projectId: string;
@@ -43,6 +50,8 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   latestRun: TaskRun | null;
+  /** Checklist in display order. */
+  subtasks: Subtask[];
 }
 
 export interface TaskInput {
@@ -52,6 +61,11 @@ export interface TaskInput {
   milestoneId?: string | null;
   labelIds?: string[];
   assigneeProfileId?: string | null;
+}
+
+export interface SubtaskInput {
+  title?: string;
+  done?: boolean;
 }
 
 export interface MoveTaskRequest {

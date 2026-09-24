@@ -23,6 +23,7 @@ import { useChatAgents } from '@/features/chat/api';
 import { usePersistentState } from '@/features/chat/util';
 import { COLUMNS, pmApi, useLabels, useMilestones, usePmMutation, useRuns, useTasks } from './api';
 import { formatDateTime, LabelChip, MarkdownField, RunBadge } from './common';
+import { SubtaskList, SubtaskProgress } from './Subtasks';
 
 const PALETTE = ['e11d48', 'f97316', 'eab308', '22c55e', '14b8a6', '3b82f6', '8b5cf6', 'ec4899', '64748b'];
 
@@ -328,6 +329,14 @@ function TaskEditor({ projectId, task, onClose }: { projectId: string; task: Tas
         <Button size="sm" disabled={!dirty || update.isPending} onClick={save}>
           Speichern
         </Button>
+      </div>
+
+      <div className="grid gap-1.5">
+        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          Unteraufgaben
+          {task.subtasks.length > 0 && <SubtaskProgress subtasks={task.subtasks} />}
+        </div>
+        <SubtaskList projectId={projectId} task={task} />
       </div>
 
       <AgentHandoff projectId={projectId} task={task} />

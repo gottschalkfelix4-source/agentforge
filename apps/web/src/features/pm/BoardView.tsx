@@ -30,6 +30,7 @@ import { Select } from '@/components/ui/select';
 import { relativeTime, useTick } from '@/features/chat/util';
 import { COLUMNS, pmApi, pmKeys, sortByRank, useLabels, useMilestones, usePmLive, usePmMutation, usePmSettings, useSyncLog, useTasks } from './api';
 import { formatDateTime, LabelChip, RunBadge } from './common';
+import { SubtaskProgress } from './Subtasks';
 import { TaskDialog } from './TaskDialog';
 
 type ColumnMap = Record<TaskColumn, string[]>;
@@ -67,8 +68,9 @@ function TaskCard({ task, milestone, overlay, onOpen }: { task: Task; milestone?
           ))}
         </div>
       )}
-      {(milestone || task.ghIssueNumber || run) && (
+      {(milestone || task.ghIssueNumber || run || task.subtasks.length > 0) && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+          {task.subtasks.length > 0 && <SubtaskProgress subtasks={task.subtasks} />}
           {milestone && (
             <span className="inline-flex max-w-32 items-center gap-1 truncate" title={milestone.title}>
               <Flag className="size-3 shrink-0" /> <span className="truncate">{milestone.title}</span>

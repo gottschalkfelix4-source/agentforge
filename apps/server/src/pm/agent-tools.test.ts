@@ -68,6 +68,32 @@ describe('agent tools', () => {
     expect(tools.run(b, null, 'tasks_list', {})).toEqual([]);
   });
 
+  it('manages subtasks and links the tasks to the chat session', () => {
+    const p = project();
+    const sid = `s-${p}`;
+    db.insert('agent_sessions', { id: sid, project_id: p, agent_id: 'claude', transport: 'acp', title: 'Chat', status: 'idle', created_at: nowIso(), updated_at: nowIso() });
+    const t = tools.run(p, sid, 'task_create', { title: 'Login', subtasks: ['Formular', 'API'] }) as { id: string; subtasks: { id: string; title: string; done: boolean }[] };
+    expect(t.subtasks.map((s) => [s.title, s.done])).toEqual([['Formular', false], ['API', false]]);
+    // a todo task is not yet linked to the chat
+    expect(repo.sessionTaskIds(sid)).toEqual([]);
+
+    const added = tools.run(p, sid, 'subtasks_add', { taskId: t.id, titles: ['Tests'] }) as { subtasks: { id: string; title: string }[] };
+    expect(added.subtasks.map((s) => s.title)).toEqual(['Formular', 'API', 'Tests']);
+    expect(repo.sessionTaskIds(sid)).toEqual([t.id]);
+
+    const upd = tools.run(p, sid, 'subtask_update', { id: added.subtasks[0]!.id, done: true }) as Obj;
+    expect(upd).toMatchObject({ taskId: t.id, subtasksDone: '1/3' });
+    expect(tools.run(p, sid, 'tasks_list', {})).toEqual([expect.objectContaining({ subtasksDone: '1/3' })]);
+    expect(tools.run(p, sid, 'current_task', {})).toMatchObject({ tasks: [expect.objectContaining({ id: t.id })] });
+
+    const other = project();
+    expect(() => tools.run(other, null, 'subtask_update', { id: added.subtasks[1]!.id, done: true })).toThrow(/nicht gefunden/);
+
+    const t2 = tools.run(p, sid, 'task_create', { title: 'Logout' }) as Obj;
+    tools.run(p, sid, 'task_set_status', { id: t2.id, status: 'in_progress' });
+    expect(repo.sessionTaskIds(sid)).toEqual([t.id, t2.id]);
+  });
+
   it('rejects unknown tools and reports no current task outside task runs', () => {
     const p = project();
     expect(() => tools.run(p, null, 'rm_rf', {})).toThrow(/Unbekanntes Tool/);

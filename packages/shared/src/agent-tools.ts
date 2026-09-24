@@ -27,7 +27,8 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
   {
     name: 'current_task',
-    description: 'The board task this chat session works on (if it was started from the task board), with its description and status.',
+    description:
+      'The board task(s) this chat session works on (started from the task board, or tasks you set to in_progress / gave subtasks in this chat), with description, status and subtasks.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -44,7 +45,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
   {
     name: 'task_get',
-    description: 'Full details of one task (description, status, labels, milestone, linked GitHub issue).',
+    description: 'Full details of one task (description, status, subtasks, labels, milestone, linked GitHub issue).',
     inputSchema: { type: 'object', properties: { id: id('Task') }, required: ['id'] },
   },
   {
@@ -58,6 +59,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
         status,
         milestoneId: id('Milestone'),
         labels: { type: 'array', items: { type: 'string' }, description: 'Label names' },
+        subtasks: { type: 'array', items: { type: 'string' }, description: 'Checklist items (subtasks) to add' },
       },
       required: ['title'],
     },
@@ -82,6 +84,25 @@ export const AGENT_TOOLS: AgentToolDef[] = [
     name: 'task_set_status',
     description: 'Move a task to another status column (e.g. in_progress when starting, review or done when finished).',
     inputSchema: { type: 'object', properties: { id: id('Task'), status }, required: ['id', 'status'] },
+  },
+  {
+    name: 'subtasks_add',
+    description:
+      'Add subtasks (checklist items) to a board task, e.g. the steps you plan for it. The task then shows up in the todo bar of this chat, where the user follows your progress.',
+    inputSchema: {
+      type: 'object',
+      properties: { taskId: id('Task'), titles: { type: 'array', items: { type: 'string' }, description: 'One entry per subtask, in order' } },
+      required: ['taskId', 'titles'],
+    },
+  },
+  {
+    name: 'subtask_update',
+    description: 'Tick off a subtask (done: true), reopen it (done: false) or rename it. Update subtasks as soon as a step is finished.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: id('Subtask'), done: { type: 'boolean' }, title: { type: 'string' } },
+      required: ['id'],
+    },
   },
   {
     name: 'milestones_list',

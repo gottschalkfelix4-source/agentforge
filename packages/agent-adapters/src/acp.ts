@@ -436,6 +436,8 @@ export class AcpSession extends BaseSession {
         this.onToolUpdate(u);
         break;
       case 'plan':
+        // A sub-agent's own todo list must not replace the main agent's.
+        if (parentToolUseId(u)) break;
         this.emit({
           type: 'plan',
           entries: u.entries.map((e): PlanEntry => ({ text: e.content, status: e.status })),

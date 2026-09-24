@@ -24,10 +24,17 @@ const taskSummary = (t: Task) => ({
   milestoneId: t.milestoneId,
   labels: t.labels.map((l) => l.name),
   githubIssue: t.ghIssueNumber,
+  ...(t.subtasks.length ? { subtasksDone: `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` } : {}),
   updatedAt: t.updatedAt,
 });
 
-const taskDetail = (t: Task) => ({ ...taskSummary(t), description: t.body, githubUrl: t.ghUrl, createdAt: t.createdAt });
+const taskDetail = (t: Task) => ({
+  ...taskSummary(t),
+  description: t.body,
+  subtasks: t.subtasks,
+  githubUrl: t.ghUrl,
+  createdAt: t.createdAt,
+});
 
 const milestoneSummary = (m: Milestone) => ({
   id: m.id,
@@ -75,6 +82,26 @@ export class AgentTools {
     return t.projectId === projectId ? t : null;
   }
 
+  /** Board tasks this chat works on (task run + linked), shown in the chat's todo bar. */
+  private sessionTasks(projectId: string, sessionId: string | null): Task[] {
+    if (!sessionId) return [];
+    const out: Task[] = [];
+    for (const id of this.repo.sessionTaskIds(sessionId)) {
+      try {
+        const t = this.repo.task(id);
+        if (t.projectId === projectId) out.push(t);
+      } catch {
+        /* deleted meanwhile */
+      }
+    }
+    return out;
+  }
+
+  /** Remembers that this chat works on a task, so it appears in the chat's todo bar. */
+  private link(sessionId: string | null, taskId: string) {
+    if (sessionId) this.repo.linkSessionTask(sessionId, taskId);
+  }
+
   /** Runs one tool; returns a JSON-serialisable result (errors are thrown as HttpError). */
   run(projectId: string, sessionId: string | null, method: string, rawParams: unknown): unknown {
     const p = (rawParams ?? {}) as Record<string, unknown>;
@@ -90,11 +117,15 @@ export class AgentTools {
           inProgress: tasks.filter((t) => t.column === 'in_progress').map(taskSummary),
           pinnedNotes: this.repo.notes(projectId).filter((n) => n.pinned).map(noteSummary),
           currentTask: current ? taskDetail(current) : null,
+          sessionTasks: this.sessionTasks(projectId, sessionId).map(taskSummary),
         };
       }
       case 'current_task': {
         const t = this.currentTask(projectId, sessionId);
-        return t ? taskDetail(t) : 'Diese Sitzung gehört zu keiner Aufgabe vom Board.';
+        if (t) return taskDetail(t);
+        const linked = this.sessionTasks(projectId, sessionId);
+        if (linked.length) return { message: 'Aufgaben, an denen diese Sitzung arbeitet', tasks: linked.map(taskDetail) };
+        return 'Diese Sitzung gehört zu keiner Aufgabe vom Board.';
       }
       case 'tasks_list': {
         const a = z.object({ status: status.optional(), milestoneId: optionalId, query: z.string().optional() }).parse(p);
@@ -116,6 +147,7 @@ export class AgentTools {
             status: status.optional(),
             milestoneId: optionalId,
             labels: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+            subtasks: z.array(z.string().trim().min(1).max(300)).max(50).optional(),
           })
           .parse(p);
         const row = this.repo.createTask(projectId, {
@@ -125,6 +157,8 @@ export class AgentTools {
           milestoneId: this.milestoneId(projectId, a.milestoneId) ?? null,
           labelIds: this.labelIds(projectId, a.labels),
         });
+        if (a.subtasks?.length) this.repo.addSubtasks(row.id, a.subtasks);
+        if (a.status === 'in_progress') this.link(sessionId, row.id);
         publishPm(projectId, 'task');
         if (a.labels?.length) publishPm(projectId, 'label');
         return taskDetail(this.repo.task(row.id));
@@ -148,13 +182,33 @@ export class AgentTools {
           milestoneId: a.milestoneId === undefined ? undefined : this.milestoneId(projectId, a.milestoneId),
           labelIds: this.labelIds(projectId, a.labels),
         });
+        if (a.status === 'in_progress' || a.status === 'review') this.link(sessionId, a.id);
         publishPm(projectId, 'task');
         return taskDetail(this.repo.task(a.id));
+      }
+      case 'subtasks_add': {
+        const a = z.object({ taskId: z.string(), titles: z.array(z.string().trim().min(1).max(300)).min(1).max(50) }).parse(p);
+        this.task(projectId, a.taskId);
+        this.repo.addSubtasks(a.taskId, a.titles);
+        this.link(sessionId, a.taskId);
+        publishPm(projectId, 'task');
+        return taskDetail(this.repo.task(a.taskId));
+      }
+      case 'subtask_update': {
+        const a = z.object({ id: z.string(), done: z.boolean().optional(), title: z.string().trim().min(1).max(300).optional() }).parse(p);
+        const s = this.repo.subtaskRow(a.id);
+        this.task(projectId, s.task_id);
+        this.repo.updateSubtask(a.id, { done: a.done, title: a.title });
+        this.link(sessionId, s.task_id);
+        publishPm(projectId, 'task');
+        const t = this.repo.task(s.task_id);
+        return { taskId: t.id, subtasks: t.subtasks, subtasksDone: `${t.subtasks.filter((x) => x.done).length}/${t.subtasks.length}` };
       }
       case 'task_set_status': {
         const a = z.object({ id: z.string(), status }).parse(p);
         const t = this.task(projectId, a.id);
         if (t.column !== a.status) this.repo.moveTask(a.id, a.status);
+        if (a.status === 'in_progress' || a.status === 'review') this.link(sessionId, a.id);
         publishPm(projectId, 'task');
         return { ...taskSummary(this.repo.task(a.id)), message: `Status: ${STATUS_LABEL[a.status]}` };
       }
