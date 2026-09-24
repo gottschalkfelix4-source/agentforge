@@ -12,9 +12,26 @@ export class RpcError extends Error {
     message: string,
     readonly data?: unknown,
   ) {
-    super(message);
+    // Agents often answer a generic "Internal error" and put the real cause (e.g. the model API's error) into data.
+    const detail = rpcErrorDetail(data);
+    super(detail && !message.includes(detail) ? `${message}: ${detail}` : message);
     this.name = 'RpcError';
   }
+}
+
+/** Readable text from a JSON-RPC error's `data` (string, `{details}`/`{message}`, else compact JSON). */
+export function rpcErrorDetail(data: unknown): string | null {
+  if (data === undefined || data === null) return null;
+  let text: string;
+  if (typeof data === 'string') text = data;
+  else if (typeof data === 'object') {
+    const d = data as { details?: unknown; message?: unknown; error?: unknown };
+    const pick = [d.details, d.message, d.error].find((v) => typeof v === 'string' && v.trim());
+    text = typeof pick === 'string' ? pick : JSON.stringify(data);
+  } else text = String(data);
+  text = text.trim();
+  if (!text || text === '{}') return null;
+  return text.length > 1000 ? `${text.slice(0, 1000)}…` : text;
 }
 
 type RequestHandler = (method: string, params: unknown, id: RpcId) => unknown | Promise<unknown>;

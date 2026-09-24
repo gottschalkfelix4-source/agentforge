@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AgentEvent } from '@vibe/shared';
-import { codexMcpArgs, splitUnifiedDiff, startAgent, type AgentSessionHandle, type AgentStartOptions } from '../src/index.js';
+import { codexMcpArgs, RpcError, splitUnifiedDiff, startAgent, type AgentSessionHandle, type AgentStartOptions } from '../src/index.js';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'adapters-test-')));
@@ -339,5 +339,17 @@ describe('helpers', () => {
     const files = splitUnifiedDiff('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@\n-a\n+b\ndiff --git a/y b/y\ndeleted file mode 100644\n--- a/y\n+++ /dev/null\n@@\n-y\n');
     expect(files.map((f) => f.path)).toEqual(['x', 'y']);
     expect(files[1]!.unified).toContain('deleted file');
+  });
+});
+
+describe('RpcError', () => {
+  it('appends the detail agents put into error.data', () => {
+    expect(new RpcError(-32603, 'Internal error', { details: '400 Unsupported parameter: stream_options' }).message).toBe(
+      'Internal error: 400 Unsupported parameter: stream_options',
+    );
+    expect(new RpcError(-32603, 'Internal error', 'boom').message).toBe('Internal error: boom');
+    expect(new RpcError(-32603, 'Internal error', { code: 7 }).message).toBe('Internal error: {"code":7}');
+    expect(new RpcError(-32601, 'Method not found').message).toBe('Method not found');
+    expect(new RpcError(-32603, 'failed: boom', 'boom').message).toBe('failed: boom');
   });
 });
