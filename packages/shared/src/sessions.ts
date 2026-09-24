@@ -3,6 +3,13 @@ import type { ImageInput, SessionStatus } from './agent-events.js';
 
 export type StructuredTransport = 'acp' | 'codex_app_server';
 
+/**
+ * How Agentforge answers the agent's permission requests: `ask` = the user decides, `edits` = file changes
+ * are allowed automatically, `all` = everything is allowed (like Claude Code's "bypass permissions").
+ */
+export type ApprovalPolicy = 'ask' | 'edits' | 'all';
+export const APPROVAL_POLICIES: ApprovalPolicy[] = ['ask', 'edits', 'all'];
+
 export interface AgentSession {
   id: string;
   projectId: string;
@@ -19,6 +26,8 @@ export interface AgentSession {
   taskRunId: string | null;
   currentModel: string | null;
   currentMode: string | null;
+  /** How permission requests of the agent are answered. */
+  approvalPolicy: ApprovalPolicy;
   /**
    * Models of the provider behind the session's profile (API key / own endpoint / Ollama).
    * null = no provider profile; the agent's own model list (session.info) applies.
@@ -40,6 +49,8 @@ export interface CreateSessionRequest {
   initialPrompt?: string;
   /** Provider model for sessions with a provider profile (defaults to the profile / provider default). */
   model?: string | null;
+  /** Default `ask`. */
+  approvalPolicy?: ApprovalPolicy;
 }
 
 export interface PromptRequest { text: string; images?: ImageInput[] }

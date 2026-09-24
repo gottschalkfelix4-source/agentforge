@@ -85,6 +85,8 @@ export interface RunTaskRequest {
   profileId?: string | null;
   /** Commit, push and open a PR automatically when the agent finishes its turn. */
   autoPr?: boolean;
+  /** How the agent's permission requests are answered (default `ask`). */
+  approvalPolicy?: import('./sessions.js').ApprovalPolicy;
 }
 
 export interface Milestone {

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AgentSession,
+  ApprovalPolicy,
   CreateSessionRequest,
   ImageInput,
   PromptRequest,
@@ -31,6 +32,8 @@ export const chatApi = {
     request<Ok>(`${s(sid)}/approval`, { method: 'POST', body: { requestId, optionId } }),
   answer: (sid: string, body: QuestionResponse) => request<Ok>(`${s(sid)}/answer`, { method: 'POST', body }),
   mode: (sid: string, mode: string) => request<Ok>(`${s(sid)}/mode`, { method: 'POST', body: { mode } }),
+  approvalPolicy: (sid: string, policy: ApprovalPolicy) =>
+    request<AgentSession>(`${s(sid)}/approval-policy`, { method: 'POST', body: { policy } }),
   model: (sid: string, model: string) => request<Ok>(`${s(sid)}/model`, { method: 'POST', body: { model } }),
   stop: (sid: string) => request<Ok>(`${s(sid)}/stop`, { method: 'POST' }),
   resume: (sid: string) => request<Ok>(`${s(sid)}/resume`, { method: 'POST' }),
@@ -123,6 +126,7 @@ export function useSessionActions(sid: string) {
       approval: (requestId: string, optionId: string) => chatApi.approval(sid, requestId, optionId),
       answer: (body: QuestionResponse) => chatApi.answer(sid, body),
       mode: (mode: string) => chatApi.mode(sid, mode),
+      approvalPolicy: (policy: ApprovalPolicy) => chatApi.approvalPolicy(sid, policy),
       model: (model: string) => chatApi.model(sid, model),
       stop: () => chatApi.stop(sid),
       resume: () => chatApi.resume(sid),

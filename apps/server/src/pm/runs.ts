@@ -214,6 +214,7 @@ export class TaskRunService {
         profileId: req.profileId ?? null,
         title: `Aufgabe: ${task.title}`.slice(0, 200),
         cwd: wtPath,
+        ...(req.approvalPolicy ? { approvalPolicy: req.approvalPolicy } : {}),
       });
     } catch (err) {
       this.repo.db.run('DELETE FROM task_runs WHERE id = ?', runId);

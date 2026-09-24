@@ -41,7 +41,8 @@ alles einheitlich an:
 
 - Antworten mit Markdown, Denkprozess und Laufzeit
 - Tool-Aufrufe als Karten: Befehle mit Ausgabe, Dateiänderungen als Diff, Sub-Agents verschachtelt
-- **Freigaben** für Befehle und Dateiänderungen sowie **Rückfragen** des Agents mit Auswahlmöglichkeiten direkt im Chat
+- **Freigaben** für Befehle und Dateiänderungen sowie **Rückfragen** des Agents mit Auswahlmöglichkeiten direkt im Chat –
+  pro Sitzung einstellbar für jeden Agent: manuell, Dateiänderungen automatisch oder alles erlauben
 - **Todo-Leiste** über dem Eingabefeld: die Todo-Liste des Agents und die Unteraufgaben der Board-Aufgaben, an denen er arbeitet
 - Modell- und Modus-Wahl je Sitzung, Token- und Kontextanzeige, Bilder im Prompt
 - Sitzungen laufen im Workspace weiter, auch wenn der Browser zu ist

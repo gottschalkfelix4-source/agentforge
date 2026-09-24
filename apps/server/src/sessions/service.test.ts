@@ -3,7 +3,8 @@ import type { AgentEvent, Channel, ServerEvent } from '@vibe/shared';
 import { Db, nowIso } from '../db/index.js';
 import { bus } from '../events.js';
 import { buildStructuredLaunch } from '../agents/launch.js';
-import { autoTitle, DEFAULT_TITLE, SessionStore } from './service.js';
+import { autoApproval, openApprovals } from './approval-policy.js';
+import { autoTitle, DEFAULT_TITLE, SessionStore, toSession } from './service.js';
 
 const db = new Db(':memory:');
 const store = new SessionStore(db);
@@ -155,5 +156,33 @@ describe('buildStructuredLaunch', () => {
     const sub = buildStructuredLaunch('claude', { profile: null, provider: null, apiKey: null });
     expect(sub.env).toEqual({ CLAUDE_CONFIG_DIR: '/home/coder/.claude' });
     expect(sub.model).toBeNull();
+  });
+});
+
+describe('approval policy', () => {
+  type Req = Extract<AgentEvent, { type: 'approval.request' }>;
+  const req = (id: string, kind: Req['kind'], options: Req['options']): Req => ({ type: 'approval.request', id, kind, title: 't', options });
+  const claudeOptions: Req['options'] = [
+    { id: 'always', label: 'Always allow', kind: 'allow_always' },
+    { id: 'once', label: 'Allow', kind: 'allow_once' },
+    { id: 'no', label: 'Reject', kind: 'reject_once' },
+  ];
+
+  it('ask never answers; edits only file changes; all everything — one-time permission first', () => {
+    expect(autoApproval(req('a', 'edit', claudeOptions), 'ask')).toBeNull();
+    expect(autoApproval(req('a', 'edit', claudeOptions), 'edits')).toBe('once');
+    expect(autoApproval(req('a', 'exec', claudeOptions), 'edits')).toBeNull();
+    expect(autoApproval(req('a', 'exec', claudeOptions), 'all')).toBe('once');
+    expect(autoApproval(req('a', 'other', [{ id: 'x', label: 'Always', kind: 'allow_always' }]), 'all')).toBe('x');
+    expect(autoApproval(req('a', 'other', [{ id: 'no', label: 'Reject', kind: 'reject_once' }]), 'all')).toBeNull();
+  });
+
+  it('openApprovals drops resolved requests', () => {
+    const events: AgentEvent[] = [req('a', 'edit', claudeOptions), req('b', 'exec', claudeOptions), { type: 'approval.resolved', id: 'a', optionId: 'once' }];
+    expect(openApprovals(events).map((e) => e.id)).toEqual(['b']);
+  });
+
+  it('sessions default to ask', () => {
+    expect(toSession(store.require(newSession())).approvalPolicy).toBe('ask');
   });
 });

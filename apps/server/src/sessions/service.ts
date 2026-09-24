@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   AgentSession,
+  ApprovalPolicy,
   AgentStartParams,
   CreateSessionRequest,
   ImageInput,
@@ -22,6 +23,7 @@ import { providerRepo } from '../routes/providers.js';
 import { HttpError } from '../workspaces/manager.js';
 import type { WsdClient } from '../workspaces/wsd-client.js';
 import { WsdError } from '../workspaces/wsd-client.js';
+import { autoApproval, openApprovals } from './approval-policy.js';
 
 export const DEFAULT_TITLE = 'Neue Sitzung';
 const TITLE_MAX = 60;
@@ -59,6 +61,7 @@ export interface SessionRow {
   current_mode: string | null;
   provider_model?: string | null;
   provider_models_json?: string | null;
+  approval_policy?: ApprovalPolicy;
   last_seq: number;
   created_at: string;
   updated_at: string;
@@ -78,6 +81,7 @@ export const toSession = (r: SessionRow): AgentSession => ({
   taskRunId: r.task_run_id,
   currentModel: r.current_model,
   currentMode: r.current_mode,
+  approvalPolicy: r.approval_policy ?? 'ask',
   providerModels: r.provider_models_json ? (JSON.parse(r.provider_models_json) as string[]) : null,
   providerModel: r.provider_model ?? null,
   lastSeq: r.last_seq,
@@ -133,7 +137,7 @@ export class SessionStore {
   patch(
     id: string,
     patch: Partial<
-      Pick<SessionRow, 'title' | 'status' | 'status_message' | 'external_id' | 'current_model' | 'current_mode' | 'provider_model' | 'provider_models_json'>
+      Pick<SessionRow, 'title' | 'status' | 'status_message' | 'external_id' | 'current_model' | 'current_mode' | 'provider_model' | 'provider_models_json' | 'approval_policy'>
     >,
   ): SessionRow | undefined {
     this.db.update('agent_sessions', id, { ...patch, updated_at: nowIso() });
@@ -247,7 +251,9 @@ export class SessionService {
     this.ctx.workspaces.onWsdNotification((projectId, method, params) => {
       if (method === 'agent.event') {
         const p = params as WsdNotifications['agent.event'];
-        this.store.ingest(projectId, p.sessionId, { seq: p.seq, ts: p.ts, event: p.event });
+        if (this.store.ingest(projectId, p.sessionId, { seq: p.seq, ts: p.ts, event: p.event }) && p.event.type === 'approval.request') {
+          this.autoApprove(p.sessionId, [p.event]);
+        }
       } else if (method === 'agent.exit') {
         const p = params as WsdNotifications['agent.exit'];
         const row = this.store.row(p.sessionId);
@@ -276,6 +282,7 @@ export class SessionService {
         let n = 0;
         for (const rec of events) if (this.store.ingest(projectId, row.id, rec)) n++;
         if (n) this.log.info(`Sitzung ${row.id}: ${n} Ereignisse nachgeladen`);
+        if (n && st.running) this.autoApprove(row.id, this.pendingApprovals(row.id));
       }
       if (!st.running) this.store.markStopped(row.id, null);
     }
@@ -422,6 +429,7 @@ export class SessionService {
       current_model: null,
       current_mode: null,
       provider_model: body.model?.trim() || null,
+      approval_policy: body.approvalPolicy ?? 'ask',
     };
     // Validates profile + policy before anything is created.
     const params = await this.launchParams(draft, false);
@@ -506,6 +514,35 @@ export class SessionService {
 
   answer(id: string, body: QuestionResponse) {
     return this.call(id, 'agent.answer', { requestId: body.requestId, action: body.action, ...(body.answers ? { answers: body.answers } : {}) });
+  }
+
+  /** Changes how permission requests are answered; open requests the new policy covers are answered now. */
+  setApprovalPolicy(id: string, policy: ApprovalPolicy): AgentSession {
+    this.store.require(id);
+    const row = this.store.patch(id, { approval_policy: policy })!;
+    this.autoApprove(id, this.pendingApprovals(id));
+    return toSession(row);
+  }
+
+  private pendingApprovals(id: string) {
+    const rows = this.ctx.db.all<{ payload_json: string }>(
+      "SELECT payload_json FROM session_events WHERE session_id = ? AND type IN ('approval.request', 'approval.resolved') ORDER BY seq",
+      id,
+    );
+    return openApprovals(rows.map((r) => JSON.parse(r.payload_json) as AgentEvent));
+  }
+
+  /** Answers permission requests the session's approval policy allows (the rest waits for the user). */
+  private autoApprove(id: string, requests: AgentEvent[]) {
+    const row = this.store.row(id);
+    const policy = row?.approval_policy ?? 'ask';
+    if (!row || policy === 'ask') return;
+    for (const e of requests) {
+      if (e.type !== 'approval.request') continue;
+      const optionId = autoApproval(e, policy);
+      if (!optionId) continue;
+      void this.respond(id, e.id, optionId).catch((err: Error) => this.log.warn(`Automatische Freigabe ${id}/${e.id}: ${err.message}`));
+    }
   }
 
   setMode(id: string, value: string) {

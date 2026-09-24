@@ -135,6 +135,7 @@ so they keep running while the app server restarts; events are backfilled on rec
 | POST | /api/sessions/:sid/cancel | – | `{ok:true}` (cancels the turn, drops queued prompts, resolves open approvals as `cancelled`) |
 | POST | /api/sessions/:sid/approval | ApprovalResponse | `{ok:true}` |
 | POST | /api/sessions/:sid/mode | `{mode}` | `{ok:true}` (ids from `session.info.modes`) |
+| POST | /api/sessions/:sid/approval-policy | `{policy: ask\|edits\|all}` | AgentSession – "Freigaben": Agentforge answers the agent's permission requests itself (`edits` = file changes, `all` = everything; one-time permission preferred over "always allow"). Open requests the new policy covers are answered right away. Also `approvalPolicy` in CreateSessionRequest / RunTaskRequest (default `ask`). Independent of the agent's own modes. |
 | POST | /api/sessions/:sid/model | `{model}` | `{ok:true}` (ids from `session.info.models`) |
 | POST | /api/sessions/:sid/stop | – | AgentSession (`stopped`) |
 | POST | /api/sessions/:sid/resume | – | AgentSession (restarts the agent with `resumeExternalId`) |
@@ -240,7 +241,7 @@ Types in `packages/shared/src/pm.ts`. Every mutation publishes `{type:'pm.change
 | PATCH / DELETE | /api/milestones/:mid | Partial<MilestoneInput> / – | Milestone / `{ok:true}` (tasks keep existing, milestone unset) |
 | GET / POST | /api/projects/:id/notes | – / NoteInput | Note[] (pinned first, then last edited) / Note |
 | PATCH / DELETE | /api/notes/:nid | NoteInput / – | Note / `{ok:true}` |
-| POST | /api/tasks/:tid/run | RunTaskRequest `{agentId, profileId?, autoPr?}` | TaskRun (see below; 400 `no_git_repo` / `no_commit`, 409 `run_active`, 409 workspace not running) |
+| POST | /api/tasks/:tid/run | RunTaskRequest `{agentId, profileId?, autoPr?, approvalPolicy?}` | TaskRun (see below; 400 `no_git_repo` / `no_commit`, 409 `run_active`, 409 workspace not running) |
 | GET | /api/tasks/:tid/runs | – | TaskRun[] (newest first) |
 | POST | /api/task-runs/:rid/finish | – | TaskRun (commit + push + PR; 400 `no_changes`) |
 | POST | /api/task-runs/:rid/cancel | `{removeWorktree?: boolean}` | TaskRun (`cancelled`; stops the session; task in_progress → todo) |

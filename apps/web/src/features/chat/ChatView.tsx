@@ -336,6 +336,8 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
             onModel={switchModel}
             modelsFromProvider={!!session.providerModels}
             onMode={(id) => run(actions.mode(id))}
+            approvalPolicy={session.approvalPolicy}
+            onApprovalPolicy={(p) => run(actions.approvalPolicy(p).then((s) => upsertSession(qc, s)))}
             autoFocus
           />
         </div>

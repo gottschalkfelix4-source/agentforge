@@ -18,6 +18,7 @@ const createBody = z.object({
     .optional(),
   initialPrompt: z.string().max(200_000).optional(),
   model: z.string().trim().min(1).max(300).nullish(),
+  approvalPolicy: z.enum(['ask', 'edits', 'all']).optional(),
 });
 const promptBody = z.object({ text: z.string().max(200_000), images: z.array(imageSchema).max(20).optional() });
 const approvalBody = z.object({ requestId: z.string().min(1), optionId: z.string().min(1) });
@@ -64,6 +65,9 @@ export async function sessionsRoutes(app: FastifyInstance, ctx: AppContext) {
       .parse(req.body);
     return svc.answer(req.params.sid, body);
   });
+  app.post<S>('/api/sessions/:sid/approval-policy', async (req) =>
+    svc.setApprovalPolicy(req.params.sid, z.object({ policy: z.enum(['ask', 'edits', 'all']) }).parse(req.body).policy),
+  );
   app.post<S>('/api/sessions/:sid/mode', async (req) => svc.setMode(req.params.sid, z.object({ mode: z.string().min(1) }).parse(req.body).mode));
   app.post<S>('/api/sessions/:sid/model', async (req) => svc.setModel(req.params.sid, z.object({ model: z.string().min(1) }).parse(req.body).model));
   app.post<S>('/api/sessions/:sid/stop', async (req) => svc.stop(req.params.sid));

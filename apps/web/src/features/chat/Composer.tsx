@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
-import type { ImageInput } from '@vibe/shared';
-import { ArrowUp, Check, ChevronDown, Cpu, ImagePlus, Loader2, Square, SlidersHorizontal, X } from 'lucide-react';
+import type { ApprovalPolicy, ImageInput } from '@vibe/shared';
+import { ArrowUp, Check, ChevronDown, Cpu, ImagePlus, Loader2, ShieldAlert, ShieldCheck, ShieldQuestion, Square, SlidersHorizontal, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -85,6 +85,31 @@ export function PickerMenu<T extends string>({
   );
 }
 
+const APPROVAL_POLICY_ITEMS: { id: ApprovalPolicy; name: string; description: string; icon: React.ReactNode }[] = [
+  { id: 'ask', name: 'Manuell', description: 'Fragt vor Befehlen und Dateiänderungen nach', icon: <ShieldQuestion className="size-3.5" /> },
+  { id: 'edits', name: 'Änderungen automatisch', description: 'Dateiänderungen ohne Rückfrage, Befehle nach Rückfrage', icon: <ShieldCheck className="size-3.5" /> },
+  { id: 'all', name: 'Alles erlauben', description: 'Führt alles ohne Rückfrage aus (wie „Bypass permissions“)', icon: <ShieldAlert className="size-3.5 text-warning" /> },
+];
+
+/**
+ * Freigaben: how Agentforge answers the agent's permission requests — for every agent, on top of the
+ * agent's own modes (Claude's permission modes, Cline's Plan/Act …) in the mode picker.
+ */
+export function ApprovalPolicyPicker({ value, onSelect, disabled }: { value: ApprovalPolicy; onSelect: (p: ApprovalPolicy) => void; disabled?: boolean }) {
+  const current = APPROVAL_POLICY_ITEMS.find((p) => p.id === value) ?? APPROVAL_POLICY_ITEMS[0]!;
+  return (
+    <PickerMenu
+      icon={current.icon}
+      label={current.name}
+      title="Freigaben"
+      items={APPROVAL_POLICY_ITEMS.map(({ id, name, description }) => ({ id, name, description }))}
+      value={value}
+      onSelect={onSelect}
+      disabled={disabled}
+    />
+  );
+}
+
 export function Composer({
   draftKey,
   placeholder = 'Nachricht an den Agent…',
@@ -98,6 +123,8 @@ export function Composer({
   onModel,
   modelsFromProvider,
   onMode,
+  approvalPolicy,
+  onApprovalPolicy,
   leftSlot,
   large,
   autoFocus,
@@ -117,6 +144,8 @@ export function Composer({
   /** Models come from the session's provider profile (shows a link to manage them). */
   modelsFromProvider?: boolean;
   onMode?: (id: string) => void;
+  approvalPolicy?: ApprovalPolicy;
+  onApprovalPolicy?: (p: ApprovalPolicy) => void;
   leftSlot?: React.ReactNode;
   large?: boolean;
   autoFocus?: boolean;
@@ -393,6 +422,7 @@ export function Composer({
             </Button>
           </Tooltip>
           {leftSlot}
+          {approvalPolicy && onApprovalPolicy && <ApprovalPolicyPicker value={approvalPolicy} onSelect={onApprovalPolicy} disabled={disabled} />}
           {modes.length > 0 && onMode && (
             <PickerMenu
               icon={<SlidersHorizontal className="size-3.5" />}

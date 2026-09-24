@@ -241,4 +241,8 @@ export const migrations: string[] = [
     PRIMARY KEY (session_id, task_id)
   );
   `,
+
+  /* v6: Agentforge answers permission requests of a chat session by itself (ask | edits | all) */ `
+  ALTER TABLE agent_sessions ADD COLUMN approval_policy TEXT NOT NULL DEFAULT 'ask';
+  `,
 ];

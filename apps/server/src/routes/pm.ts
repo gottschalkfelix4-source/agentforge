@@ -47,7 +47,12 @@ const milestoneInput = z.strictObject({
   dueOn: date.nullish(),
 });
 const noteInput = z.object({ title: z.string().trim().max(200).optional(), body: z.string().max(500_000).optional(), pinned: z.boolean().optional() });
-const runInput = z.object({ agentId: z.string().min(1), profileId: z.string().nullish(), autoPr: z.boolean().optional() });
+const runInput = z.object({
+  agentId: z.string().min(1),
+  profileId: z.string().nullish(),
+  autoPr: z.boolean().optional(),
+  approvalPolicy: z.enum(['ask', 'edits', 'all']).optional(),
+});
 const settingsInput = z.object({ syncEnabled: z.boolean().optional(), syncCreateIssues: z.boolean().optional() });
 const subtaskTitle = z.string().trim().min(1).max(300);
 const subtasksInput = z.union([z.object({ title: subtaskTitle }), z.object({ titles: z.array(subtaskTitle).min(1).max(50) })]);

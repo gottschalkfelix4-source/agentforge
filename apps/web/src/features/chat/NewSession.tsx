@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Cpu, KeyRound, Loader2, SquareTerminal, TriangleAlert, UserCog } from 'lucide-react';
+import type { ApprovalPolicy } from '@vibe/shared';
 import { api, ApiRequestError } from '@/lib/api';
 import { qk, useProfiles, useProviders } from '@/lib/queries';
 import { useNav, useUi } from '@/lib/store';
 import { errorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { chatApi, useChatAgents, useCreateSession } from './api';
-import { Composer, PickerMenu, type ComposerApi, type ComposerImage } from './Composer';
+import { ApprovalPolicyPicker, Composer, PickerMenu, type ComposerApi, type ComposerImage } from './Composer';
 import { AgentAvatar, usePersistentState } from './util';
 
 const SUGGESTIONS = [
@@ -29,6 +30,8 @@ export function NewSession({ projectId }: { projectId: string }) {
   const setActive = useNav((s) => s.setActiveSession);
   const [agentPref, setAgentPref] = usePersistentState<string>('vibe-chat-agent', 'claude');
   const [profilePref, setProfilePref] = usePersistentState<Record<string, string | null>>('vibe-chat-profile', {});
+  // Freigaben per agent, remembered for the next session.
+  const [policyPref, setPolicyPref] = usePersistentState<Record<string, ApprovalPolicy>>('vibe-chat-approval', {});
   const [subError, setSubError] = React.useState<string | null>(null);
   const [launching, setLaunching] = React.useState(false);
   const composer = React.useRef<ComposerApi>(null);
@@ -56,6 +59,8 @@ export function NewSession({ projectId }: { projectId: string }) {
   const storedModel = profileId ? modelPref[profileId] : undefined;
   const model = storedModel && providerModels.includes(storedModel) ? storedModel : fallbackModel;
 
+  const approvalPolicy: ApprovalPolicy = (agent && policyPref[agent.id]) || 'ask';
+
   const send = async (text: string, images: ComposerImage[]): Promise<boolean> => {
     if (!agent) return false;
     setSubError(null);
@@ -64,6 +69,7 @@ export function NewSession({ projectId }: { projectId: string }) {
         agentId: agent.id,
         profileId,
         model: provider ? model : undefined,
+        approvalPolicy,
         // CreateSessionRequest has no images → send them with a follow-up prompt instead
         initialPrompt: images.length ? undefined : text || undefined,
       });
@@ -129,6 +135,7 @@ export function NewSession({ projectId }: { projectId: string }) {
           setSubError(null);
         }}
       />
+      <ApprovalPolicyPicker value={approvalPolicy} onSelect={(p) => setPolicyPref({ ...policyPref, [agent.id]: p })} />
       {provider && (
         <PickerMenu
           icon={<Cpu className="size-3.5" />}
