@@ -31,9 +31,9 @@ Shared registration points were pre-created so you should not need to touch othe
 
 ## Product invariant: task status is agent-only
 The user must never change the status of board tasks — not by dragging cards between columns, not in the task
-dialog, not by ticking subtasks (board, task dialog, todo bar). Only the agent does that via its board tools
+dialog, not by ticking subtasks (board, task dialog, todo bar), not by opening/closing milestones (roadmap). Only the agent does that via its board tools
 (`apps/server/src/pm/agent-tools.ts`). The user API enforces it (`apps/server/src/routes/pm.ts`: new tasks only in
-`USER_TASK_COLUMNS`, no `column` in PATCH, `/move` only within the same column, no `done` on subtasks).
+`USER_TASK_COLUMNS`, no `column` in PATCH, `/move` only within the same column, no `done` on subtasks, no `state` on milestones).
 Keep UI and API that way, and keep the rule in the AGENTS.md template (`packages/shared/src/agents-md.ts`,
 `docs/AGENTS.template.md`).
 

@@ -26,7 +26,8 @@ const date = z
   .transform((s) => s.slice(0, 10));
 
 // Status is agent-only: the user places new tasks in backlog/todo and can reorder within a column, but never
-// changes a task's column or ticks off subtasks — the agent does that via its board tools (pm/agent-tools.ts).
+// changes a task's column, ticks off subtasks or opens/closes milestones — the agent does that via its board tools
+// (pm/agent-tools.ts).
 const taskFields = {
   title: z.string().trim().min(1).max(300),
   body: z.string().max(100_000).optional(),
@@ -39,11 +40,11 @@ const taskPatch = z.strictObject(taskFields).partial();
 const AGENT_ONLY = 'Den Status von Aufgaben ändert nur der Agent.';
 const moveInput = z.object({ column, beforeId: z.string().nullish(), afterId: z.string().nullish() });
 const labelInput = z.object({ name: z.string().trim().min(1).max(50), color: color.optional() });
-const milestoneInput = z.object({
+// No `state`: opening/closing milestones is agent-only as well (new ones start open).
+const milestoneInput = z.strictObject({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(20_000).optional(),
   dueOn: date.nullish(),
-  state: z.enum(['open', 'closed']).optional(),
 });
 const noteInput = z.object({ title: z.string().trim().max(200).optional(), body: z.string().max(500_000).optional(), pinned: z.boolean().optional() });
 const runInput = z.object({ agentId: z.string().min(1), profileId: z.string().nullish(), autoPr: z.boolean().optional() });
@@ -275,7 +276,7 @@ export async function pmRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.patch<{ Params: { mid: string } }>('/api/milestones/:mid', async (req) => {
     const b = milestoneInput.partial().parse(req.body);
-    const m = repo.updateMilestone(req.params.mid, { title: b.title, description: b.description, due_on: b.dueOn, state: b.state });
+    const m = repo.updateMilestone(req.params.mid, { title: b.title, description: b.description, due_on: b.dueOn });
     publishPm(m.project_id, 'milestone');
     return repo.milestone(m.id);
   });

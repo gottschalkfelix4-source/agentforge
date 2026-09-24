@@ -16,6 +16,7 @@ describe('AGENTS.md templates', () => {
     expect(t).toContain('playwright');
     // The user cannot change task status in the UI — the template must make the agent own it.
     expect(t).toContain('Status pflegst ausschließlich du');
+    expect(t).toContain('Nur du öffnest und schließt sie');
     expect(claudeMdTemplate('Shop')).toMatch(/^@AGENTS\.md$/m);
   });
 

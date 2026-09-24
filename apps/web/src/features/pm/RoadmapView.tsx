@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
 import { COLUMN_LABEL, pmApi, sortByRank, useMilestones, usePmLive, usePmMutation, useTasks } from './api';
 import { EmptyHint, formatDate, LabelChip, MarkdownField, RunBadge, todayIso } from './common';
 import { TaskDialog } from './TaskDialog';
@@ -26,14 +25,12 @@ function MilestoneDialog({
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [dueOn, setDueOn] = React.useState('');
-  const [state, setState] = React.useState<'open' | 'closed'>('open');
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   React.useEffect(() => {
     if (!open) return;
     setTitle(milestone?.title ?? '');
     setDescription(milestone?.description ?? '');
     setDueOn(milestone?.dueOn ?? '');
-    setState(milestone?.state ?? 'open');
     setConfirmDelete(false);
   }, [open, milestone]);
 
@@ -43,7 +40,7 @@ function MilestoneDialog({
     e.preventDefault();
     if (!title.trim()) return;
     save.mutate(
-      { title: title.trim(), description, dueOn: dueOn || null, state },
+      { title: title.trim(), description, dueOn: dueOn || null },
       { onSuccess: () => (onOpenChange(false), toast.success(milestone ? 'Meilenstein gespeichert' : 'Meilenstein angelegt')) },
     );
   };
@@ -63,10 +60,13 @@ function MilestoneDialog({
               <Input id="ms-due" type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} className="dark:[color-scheme:dark]" />
             </Field>
             <Field label="Status">
-              <Select value={state} onChange={(e) => setState(e.target.value as 'open' | 'closed')}>
-                <option value="open">Offen</option>
-                <option value="closed">Geschlossen</option>
-              </Select>
+              {/* Read-only: the agent opens/closes milestones (board tools), never the user. */}
+              <div
+                title="Den Status setzt der Agent"
+                className="flex h-8 items-center rounded-lg border border-input bg-muted/40 px-2.5 text-sm text-muted-foreground"
+              >
+                {milestone?.state === 'closed' ? 'Geschlossen' : 'Offen'}
+              </div>
             </Field>
           </div>
           <Field label="Beschreibung">
@@ -135,20 +135,17 @@ function ProgressBar({ done, total, overdue }: { done: number; total: number; ov
 }
 
 function MilestoneCard({
-  projectId,
   milestone,
   tasks,
   onEdit,
   onOpenTask,
 }: {
-  projectId: string;
   milestone: Milestone;
   tasks: Task[];
   onEdit: () => void;
   onOpenTask: (id: string) => void;
 }) {
   const [expanded, setExpanded] = React.useState(milestone.state === 'open');
-  const toggleState = usePmMutation(projectId, () => pmApi.updateMilestone(milestone.id, { state: milestone.state === 'open' ? 'closed' : 'open' }));
   const closed = milestone.state === 'closed';
   const overdue = !closed && !!milestone.dueOn && milestone.dueOn < todayIso() && milestone.progress.done < milestone.progress.total;
   const overdueNoTasks = !closed && !!milestone.dueOn && milestone.dueOn < todayIso() && milestone.progress.total === 0;
@@ -181,9 +178,6 @@ function MilestoneCard({
           </div>
           <Button size="icon-sm" variant="ghost" onClick={onEdit} aria-label="Bearbeiten">
             <Pencil />
-          </Button>
-          <Button size="sm" variant="ghost" disabled={toggleState.isPending} onClick={() => toggleState.mutate()}>
-            {closed ? 'Wieder öffnen' : 'Schließen'}
           </Button>
         </div>
         {expanded && (
@@ -256,7 +250,6 @@ export function RoadmapView({ projectId }: { projectId: string }) {
           {list.map((m) => (
             <MilestoneCard
               key={m.id}
-              projectId={projectId}
               milestone={m}
               tasks={grouped.get(m.id) ?? []}
               onEdit={() => setEdit({ open: true, milestone: m })}

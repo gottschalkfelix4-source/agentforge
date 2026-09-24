@@ -3,8 +3,8 @@
 export const TASK_COLUMNS = ['backlog', 'todo', 'in_progress', 'review', 'done'] as const;
 export type TaskColumn = (typeof TASK_COLUMNS)[number];
 /**
- * Columns the user may put a new task into. Everything else about progress — moving tasks between columns and
- * ticking off subtasks — is done by the agent only (board tools); the user API rejects it.
+ * Columns the user may put a new task into. Everything else about progress — moving tasks between columns,
+ * ticking off subtasks, opening/closing milestones — is done by the agent only (board tools); the user API rejects it.
  */
 export const USER_TASK_COLUMNS = ['backlog', 'todo'] as const satisfies readonly TaskColumn[];
 
@@ -99,11 +99,11 @@ export interface Milestone {
   createdAt: string;
 }
 
+/** User edit of a milestone. Opening/closing it is reserved for the agent (board tools). */
 export interface MilestoneInput {
   title: string;
   description?: string;
   dueOn?: string | null;
-  state?: 'open' | 'closed';
 }
 
 export interface Note {
