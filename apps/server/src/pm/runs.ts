@@ -68,6 +68,7 @@ export function slugify(s: string, max = 30): string {
 }
 
 export interface PromptContext {
+  taskId: string;
   title: string;
   body: string;
   labels: string[];
@@ -75,6 +76,8 @@ export interface PromptContext {
   issue: { number: number; url: string | null } | null;
   worktreePath: string;
   branch: string;
+  /** Checklist of the task — the agent works through it and ticks items off (todo bar of the chat). */
+  subtasks: { id: string; title: string; done: boolean }[];
 }
 
 export function buildTaskPrompt(c: PromptContext): string {
@@ -89,6 +92,20 @@ export function buildTaskPrompt(c: PromptContext): string {
     '',
     c.body.trim() || '_(keine weitere Beschreibung)_',
     ...(meta.length ? ['', '## Kontext', ...meta] : []),
+    ...(c.subtasks.length
+      ? [
+          '',
+          '## Unteraufgaben (Checkliste)',
+          ...c.subtasks.map((s) => `- [${s.done ? 'x' : ' '}] ${s.title} (id: \`${s.id}\`)`),
+          '',
+          'Diese Unteraufgaben sind deine Todo-Liste für diese Aufgabe – der Nutzer sieht sie in der Todo-Leiste über dem Chat. ' +
+            'Arbeite sie der Reihe nach ab und hake jede **sofort** mit `subtask_update` (`id`, `done: true`) ab, sobald sie erledigt ist. ' +
+            'Fehlen Schritte, ergänze sie mit `subtasks_add` (Aufgaben-ID `' + c.taskId + '`). Führe dieselben Schritte nicht zusätzlich in einer eigenen Todo-Liste.',
+        ]
+      : [
+          '',
+          `Zerlege die Aufgabe zu Beginn mit \`subtasks_add\` (Aufgaben-ID \`${c.taskId}\`) in Unteraufgaben und hake sie mit \`subtask_update\` ab, sobald ein Schritt erledigt ist – so sieht der Nutzer deinen Fortschritt in der Todo-Leiste.`,
+        ]),
     '',
     '## Arbeitsweise',
     `- Du arbeitest in einem eigenen Git-Worktree: \`/workspace/${c.worktreePath}\` (Branch \`${c.branch}\`). Das ist dein aktuelles Arbeitsverzeichnis.`,
@@ -213,6 +230,7 @@ export class TaskRunService {
       const ms = task.milestone_id ? this.repo.milestoneRow(task.milestone_id) : null;
       const run = this.repo.runRow(runId);
       const prompt = buildTaskPrompt({
+        taskId,
         title: task.title,
         body: task.body,
         labels,
@@ -220,6 +238,7 @@ export class TaskRunService {
         issue: task.gh_issue_number ? { number: task.gh_issue_number, url: task.gh_url } : null,
         worktreePath: run.worktree_path,
         branch: run.branch,
+        subtasks: this.repo.subtasks(taskId),
       });
       try {
         await this.d.sessions.prompt(session.id, prompt);

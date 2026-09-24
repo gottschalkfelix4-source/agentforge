@@ -85,6 +85,11 @@ describe('agent tools', () => {
     expect(upd).toMatchObject({ taskId: t.id, subtasksDone: '1/3' });
     expect(tools.run(p, sid, 'tasks_list', {})).toEqual([expect.objectContaining({ subtasksDone: '1/3' })]);
     expect(tools.run(p, sid, 'current_task', {})).toMatchObject({ tasks: [expect.objectContaining({ id: t.id })] });
+    // task details carry the subtask ids plus a hint to tick them off
+    expect(tools.run(p, sid, 'task_get', { id: t.id })).toMatchObject({
+      subtasks: [{ title: 'Formular', done: true }, { title: 'API', done: false }, { title: 'Tests', done: false }],
+      subtasksHint: expect.stringContaining('subtask_update'),
+    });
 
     const other = project();
     expect(() => tools.run(other, null, 'subtask_update', { id: added.subtasks[1]!.id, done: true })).toThrow(/nicht gefunden/);

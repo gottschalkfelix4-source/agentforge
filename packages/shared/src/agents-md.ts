@@ -76,8 +76,11 @@ Antworte in der Sprache des Nutzers (meist Deutsch).
 - Zerlege größere Aufgaben mit \`subtasks_add\` in Unteraufgaben und hake sie mit \`subtask_update\` ab, sobald ein Schritt
   erledigt ist. Aufgaben, die du auf \`in_progress\` setzt oder mit Unteraufgaben versiehst, erscheinen samt Checkliste in der
   Todo-Leiste über dem Chat-Eingabefeld – dort verfolgt der Nutzer deinen Fortschritt.
-- Für die einzelnen Arbeitsschritte einer Antwort nutze außerdem die eigene Todo-Liste deines Agents (z. B. \`TodoWrite\`
-  oder den Plan); auch sie erscheint in der Todo-Leiste.
+- Hat eine Aufgabe bereits Unteraufgaben, **sind das deine Todos**: Setze die Aufgabe auf \`in_progress\` (damit erscheint sie
+  im Chat) und hake jede Unteraufgabe mit \`subtask_update\` ab, sobald sie erledigt ist. Führe dieselben Schritte nicht
+  zusätzlich in deiner eigenen Todo-Liste – sonst bleibt die Checkliste der Aufgabe offen.
+- Für Arbeitsschritte ohne Board-Aufgabe nutze die eigene Todo-Liste deines Agents (z. B. \`TodoWrite\` oder den Plan);
+  auch sie erscheint in der Todo-Leiste.
 - Lege für erkannte Folgearbeiten, Bugs oder offene Punkte eigene Aufgaben an statt sie nur im Chat zu erwähnen.
 - Ordne Aufgaben passenden Meilensteinen zu, wenn es welche gibt; neue Meilensteine nur nach Absprache.
 - Halte Architektur- und Design-Entscheidungen, wichtige Befehle und Erkenntnisse in Notizen fest.

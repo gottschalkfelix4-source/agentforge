@@ -277,8 +277,14 @@ function runDeps(client: WsdLike, linked = true) {
 describe('task runs', () => {
   it('builds prompts, slugs and PR bodies', () => {
     expect(slugify('Größe ändern & testen!')).toBe('groesse-aendern-testen');
-    const p = buildTaskPrompt({ title: 'T', body: 'B', labels: ['bug'], milestone: { title: 'v1', dueOn: '2026-10-01' }, issue: { number: 3, url: null }, worktreePath: '.worktrees/task-x', branch: 'vibe/x' });
+    const base = { taskId: 't1', title: 'T', body: 'B', labels: ['bug'], milestone: { title: 'v1', dueOn: '2026-10-01' }, issue: { number: 3, url: null }, worktreePath: '.worktrees/task-x', branch: 'vibe/x' };
+    const p = buildTaskPrompt({ ...base, subtasks: [{ id: 's1', title: 'Formular', done: true }, { id: 's2', title: 'API', done: false }] });
     expect(p).toContain('# T');
+    // The checklist is part of the prompt (with ids), so the agent ticks it off instead of keeping its own list.
+    expect(p).toContain('- [x] Formular (id: `s1`)');
+    expect(p).toContain('- [ ] API (id: `s2`)');
+    expect(p).toContain('subtask_update');
+    expect(buildTaskPrompt({ ...base, subtasks: [] })).toContain('subtasks_add` (Aufgaben-ID `t1`)');
     expect(p).toContain('Labels: bug');
     expect(p).toContain('/workspace/.worktrees/task-x');
     expect(prBody({ title: 'T', body: 'B', gh_issue_number: 3 }, { agent_id: 'codex', branch: 'b' })).toContain('Closes #3');

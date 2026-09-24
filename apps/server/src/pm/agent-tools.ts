@@ -28,10 +28,15 @@ const taskSummary = (t: Task) => ({
   updatedAt: t.updatedAt,
 });
 
+const SUBTASK_HINT =
+  'Die Unteraufgaben sind die Todo-Liste dieser Aufgabe (für den Nutzer in der Todo-Leiste des Chats sichtbar). ' +
+  'Arbeitest du daran: task_set_status auf in_progress, dann jede Unteraufgabe sofort mit subtask_update {id, done: true} abhaken.';
+
 const taskDetail = (t: Task) => ({
   ...taskSummary(t),
   description: t.body,
-  subtasks: t.subtasks,
+  subtasks: t.subtasks.map((s) => ({ id: s.id, title: s.title, done: s.done })),
+  ...(t.subtasks.some((s) => !s.done) ? { subtasksHint: SUBTASK_HINT } : {}),
   githubUrl: t.ghUrl,
   createdAt: t.createdAt,
 });

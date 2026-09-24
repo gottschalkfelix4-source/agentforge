@@ -57,7 +57,7 @@ async function handle(msg: { id?: number | string; method?: string; params?: Rec
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'agentforge', title: 'Agentforge', version: VERSION },
         instructions:
-          'Agentforge project board of this workspace: tasks with status columns (backlog, todo, in_progress, review, done), roadmap milestones and project notes. Keep the board current: set tasks you work on to in_progress and to review/done when finished, add follow-up tasks, and record decisions in notes.',
+          'Agentforge project board of this workspace: tasks with status columns (backlog, todo, in_progress, review, done), subtasks (checklists), roadmap milestones and project notes. Only you can change status — the user cannot. Keep the board current: set tasks you work on to in_progress (this also shows them with their subtasks in the todo bar of the chat), tick off their subtasks with subtask_update as soon as a step is done, set tasks to review/done when finished, add follow-up tasks, and record decisions in notes.',
       });
     case 'ping':
       return reply({});

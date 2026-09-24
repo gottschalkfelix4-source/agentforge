@@ -45,7 +45,8 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
   {
     name: 'task_get',
-    description: 'Full details of one task (description, status, subtasks, labels, milestone, linked GitHub issue).',
+    description:
+      'Full details of one task (description, status, subtasks with their ids, labels, milestone, linked GitHub issue). The subtasks are the task\'s todo list: tick them off with subtask_update while you work.',
     inputSchema: { type: 'object', properties: { id: id('Task') }, required: ['id'] },
   },
   {
@@ -97,7 +98,8 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
   {
     name: 'subtask_update',
-    description: 'Tick off a subtask (done: true), reopen it (done: false) or rename it. Update subtasks as soon as a step is finished.',
+    description:
+      'Tick off a subtask (done: true), reopen it (done: false) or rename it. Subtasks are the todo list the user sees for a task — tick each one off as soon as the step is finished, and do not track the same steps in a separate todo list. Only you can do this; the user cannot tick subtasks off.',
     inputSchema: {
       type: 'object',
       properties: { id: id('Subtask'), done: { type: 'boolean' }, title: { type: 'string' } },
