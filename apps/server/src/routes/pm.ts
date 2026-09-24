@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { TASK_COLUMNS, type WsdNotifications } from '@vibe/shared';
+import { TASK_COLUMNS, USER_TASK_COLUMNS, type WsdNotifications } from '@vibe/shared';
 import { z, ZodError } from 'zod';
 import type { AppContext } from '../app-context.js';
 import { bus } from '../events.js';
@@ -25,14 +25,18 @@ const date = z
   .regex(/^\d{4}-\d{2}-\d{2}/, 'Datum im Format JJJJ-MM-TT')
   .transform((s) => s.slice(0, 10));
 
-const taskInput = z.object({
+// Status is agent-only: the user places new tasks in backlog/todo and can reorder within a column, but never
+// changes a task's column or ticks off subtasks — the agent does that via its board tools (pm/agent-tools.ts).
+const taskFields = {
   title: z.string().trim().min(1).max(300),
   body: z.string().max(100_000).optional(),
-  column: column.optional(),
   milestoneId: z.string().nullish(),
   labelIds: z.array(z.string()).max(50).optional(),
   assigneeProfileId: z.string().nullish(),
-});
+};
+const taskInput = z.object({ ...taskFields, column: z.enum(USER_TASK_COLUMNS).optional() });
+const taskPatch = z.strictObject(taskFields).partial();
+const AGENT_ONLY = 'Den Status von Aufgaben ändert nur der Agent.';
 const moveInput = z.object({ column, beforeId: z.string().nullish(), afterId: z.string().nullish() });
 const labelInput = z.object({ name: z.string().trim().min(1).max(50), color: color.optional() });
 const milestoneInput = z.object({
@@ -46,7 +50,8 @@ const runInput = z.object({ agentId: z.string().min(1), profileId: z.string().nu
 const settingsInput = z.object({ syncEnabled: z.boolean().optional(), syncCreateIssues: z.boolean().optional() });
 const subtaskTitle = z.string().trim().min(1).max(300);
 const subtasksInput = z.union([z.object({ title: subtaskTitle }), z.object({ titles: z.array(subtaskTitle).min(1).max(50) })]);
-const subtaskPatch = z.object({ title: subtaskTitle.optional(), done: z.boolean().optional() });
+// No `done`: only the agent ticks subtasks off (board tools in pm/agent-tools.ts).
+const subtaskPatch = z.strictObject({ title: subtaskTitle });
 
 type P = { Params: { id: string } };
 
@@ -151,7 +156,7 @@ export async function pmRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.patch<{ Params: { tid: string } }>('/api/tasks/:tid', async (req) => {
-    const t = repo.updateTask(req.params.tid, taskInput.partial().parse(req.body));
+    const t = repo.updateTask(req.params.tid, taskPatch.parse(req.body));
     publishPm(t.project_id, 'task');
     return repo.task(t.id);
   });
@@ -164,6 +169,7 @@ export async function pmRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post<{ Params: { tid: string } }>('/api/tasks/:tid/move', async (req) => {
     const body = moveInput.parse(req.body);
+    if (repo.taskRow(req.params.tid).col !== body.column) throw new HttpError(403, 'agent_only', AGENT_ONLY);
     const t = repo.moveTask(req.params.tid, body.column, body.beforeId, body.afterId);
     publishPm(t.project_id, 'task');
     return repo.task(t.id);

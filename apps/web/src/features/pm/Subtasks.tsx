@@ -52,10 +52,6 @@ function useSubtaskActions(projectId: string, taskId: string) {
     }
   };
   return {
-    toggle: (s: Subtask) => {
-      patchCache((list) => list.map((x) => (x.id === s.id ? { ...x, done: !s.done } : x)));
-      return run(pmApi.updateSubtask(s.id, { done: !s.done }));
-    },
     rename: (s: Subtask, title: string) => {
       patchCache((list) => list.map((x) => (x.id === s.id ? { ...x, title } : x)));
       return run(pmApi.updateSubtask(s.id, { title }));
@@ -71,13 +67,11 @@ function useSubtaskActions(projectId: string, taskId: string) {
 function SubtaskRow({
   subtask,
   compact,
-  onToggle,
   onRename,
   onRemove,
 }: {
   subtask: Subtask;
   compact?: boolean;
-  onToggle: () => void;
   onRename: (title: string) => void;
   onRemove: () => void;
 }) {
@@ -91,9 +85,15 @@ function SubtaskRow({
   };
   return (
     <li className={cn('group flex items-start gap-2 rounded-md px-1.5', compact ? 'py-0.5' : 'py-1 hover:bg-accent/50')}>
-      <button type="button" onClick={onToggle} className="mt-[3px] cursor-pointer" aria-label={subtask.done ? 'Als offen markieren' : 'Abhaken'}>
+      {/* Only the agent ticks subtasks off (board tools); for the user the state is read-only. */}
+      <span
+        role="img"
+        aria-label={subtask.done ? 'Erledigt' : 'Offen'}
+        title={subtask.done ? 'Vom Agent erledigt' : 'Offen – wird vom Agent abgehakt'}
+        className="mt-[3px]"
+      >
         <CheckCircle checked={subtask.done} />
-      </button>
+      </span>
       {editing ? (
         <input
           autoFocus
@@ -134,7 +134,7 @@ function SubtaskRow({
   );
 }
 
-/** Checklist of a board task: tick off, rename (double click), delete, add (several at once with one line each). */
+/** Checklist of a board task: rename (double click), delete, add (several at once with one line each). */
 export function SubtaskList({ projectId, task, compact }: { projectId: string; task: Task; compact?: boolean }) {
   const actions = useSubtaskActions(projectId, task.id);
   const [draft, setDraft] = React.useState('');
@@ -156,7 +156,6 @@ export function SubtaskList({ projectId, task, compact }: { projectId: string; t
               key={s.id}
               subtask={s}
               compact={compact}
-              onToggle={() => void actions.toggle(s)}
               onRename={(t) => void actions.rename(s, t)}
               onRemove={() => void actions.remove(s)}
             />

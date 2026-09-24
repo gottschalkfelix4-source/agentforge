@@ -29,6 +29,14 @@ Shared registration points were pre-created so you should not need to touch othe
   (button, input, textarea, dialog, dropdown-menu, tabs, badge, card, select, tooltip, scroll-area, …), icons
   from lucide-react, toasts via `sonner`. German UI texts. Dark-first zinc look like the Claude desktop / Codex app.
 
+## Product invariant: task status is agent-only
+The user must never change the status of board tasks — not by dragging cards between columns, not in the task
+dialog, not by ticking subtasks (board, task dialog, todo bar). Only the agent does that via its board tools
+(`apps/server/src/pm/agent-tools.ts`). The user API enforces it (`apps/server/src/routes/pm.ts`: new tasks only in
+`USER_TASK_COLUMNS`, no `column` in PATCH, `/move` only within the same column, no `done` on subtasks).
+Keep UI and API that way, and keep the rule in the AGENTS.md template (`packages/shared/src/agents-md.ts`,
+`docs/AGENTS.template.md`).
+
 ## Testing without stepping on each other
 - Never stop/kill processes or containers you did not start. The user's dev servers run on 8787/5180.
 - Start your own server instance on your assigned port with its own data dir, e.g.

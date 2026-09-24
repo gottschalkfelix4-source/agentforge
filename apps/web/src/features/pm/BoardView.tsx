@@ -6,11 +6,11 @@ import {
   pointerWithin,
   DndContext,
   type DragEndEvent,
-  type DragOverEvent,
   DragOverlay,
   type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
+  useDndContext,
   useDroppable,
   useSensor,
   useSensors,
@@ -19,7 +19,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from '@dnd-kit/utilities';
 import { useQueryClient } from '@tanstack/react-query';
 import { CircleDot, Flag, GitPullRequest, History, ListTodo, Plus, RefreshCw, Search, Settings2 } from 'lucide-react';
-import type { Milestone, Task, TaskColumn } from '@vibe/shared';
+import { USER_TASK_COLUMNS, type Milestone, type Task, type TaskColumn } from '@vibe/shared';
 import { cn, errorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -181,14 +181,17 @@ function Column({
   milestones: Map<string, Milestone>;
   onOpen: (id: string) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `${COL_PREFIX}${id}` });
+  // Cards only move within their column (reorder); changing the status is up to the agent.
+  const { active } = useDndContext();
+  const accepts = !!active && ids.includes(String(active.id));
+  const { setNodeRef, isOver } = useDroppable({ id: `${COL_PREFIX}${id}`, disabled: !accepts });
   return (
     <div className="flex h-full w-72 shrink-0 flex-col rounded-xl bg-muted/40">
       <div className="flex h-10 shrink-0 items-center gap-2 px-3">
         <span className="text-xs font-semibold tracking-wide uppercase">{label}</span>
         <span className="rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">{ids.length}</span>
       </div>
-      <div ref={setNodeRef} className={cn('min-h-0 flex-1 overflow-y-auto px-2 pb-2 transition-colors', isOver && 'bg-accent/40')}>
+      <div ref={setNodeRef} className={cn('min-h-0 flex-1 overflow-y-auto px-2 pb-2 transition-colors', isOver && accepts && 'bg-accent/40')}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <div className="grid gap-1.5">
             {ids.map((tid) => {
@@ -199,9 +202,11 @@ function Column({
             })}
           </div>
         </SortableContext>
-        <div className="mt-1.5">
-          <QuickAdd projectId={projectId} column={id} />
-        </div>
+        {(USER_TASK_COLUMNS as readonly TaskColumn[]).includes(id) && (
+          <div className="mt-1.5">
+            <QuickAdd projectId={projectId} column={id} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -301,7 +306,6 @@ export function BoardView({ projectId }: { projectId: string }) {
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [columns, setColumns] = React.useState<ColumnMap>(emptyColumns);
-  const dragFrom = React.useRef<TaskColumn | null>(null);
 
   const byId = React.useMemo(() => new Map((tasks.data ?? []).map((t) => [t.id, t])), [tasks.data]);
   const msById = React.useMemo(() => new Map((milestones.data ?? []).map((m) => [m.id, m])), [milestones.data]);
@@ -335,30 +339,10 @@ export function BoardView({ projectId }: { projectId: string }) {
     return (Object.keys(columns) as TaskColumn[]).find((c) => columns[c].includes(id)) ?? null;
   };
 
-  const onDragStart = (e: DragStartEvent) => {
-    setActiveId(String(e.active.id));
-    dragFrom.current = findColumn(String(e.active.id));
-  };
-
-  const onDragOver = (e: DragOverEvent) => {
-    if (!e.over) return;
-    const id = String(e.active.id);
-    const from = findColumn(id);
-    const to = findColumn(String(e.over.id));
-    if (!from || !to || from === to) return;
-    setColumns((cols) => {
-      const src = cols[from].filter((x) => x !== id);
-      const dst = [...cols[to]];
-      const overIdx = dst.indexOf(String(e.over!.id));
-      dst.splice(overIdx >= 0 ? overIdx : dst.length, 0, id);
-      return { ...cols, [from]: src, [to]: dst };
-    });
-  };
+  const onDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id));
 
   const onDragEnd = (e: DragEndEvent) => {
     const id = String(e.active.id);
-    const origin = dragFrom.current;
-    dragFrom.current = null;
     const col = findColumn(id);
     let final = columns;
     if (col && e.over) {
@@ -377,14 +361,11 @@ export function BoardView({ projectId }: { projectId: string }) {
     const beforeId = list[idx - 1] ?? null;
     const afterId = list[idx + 1] ?? null;
     const task = byId.get(id);
-    if (!task) return;
-    if (origin === col && task.column === col) {
-      const server = (tasks.data ?? []).filter((t) => t.column === col && visible(t)).sort(sortByRank).map((t) => t.id);
-      const si = server.indexOf(id);
-      if ((server[si - 1] ?? null) === beforeId && (server[si + 1] ?? null) === afterId) return;
-    }
-    // Optimistic: patch the cached task's column (order is kept by the local column state until refetch).
-    qc.setQueryData<Task[]>(pmKeys.tasks(projectId), (old) => old?.map((t) => (t.id === id ? { ...t, column: col } : t)));
+    if (!task || task.column !== col) return;
+    const server = (tasks.data ?? []).filter((t) => t.column === col && visible(t)).sort(sortByRank).map((t) => t.id);
+    const si = server.indexOf(id);
+    if ((server[si - 1] ?? null) === beforeId && (server[si + 1] ?? null) === afterId) return;
+    // The new order is kept by the local column state until the refetch.
     pmApi
       .moveTask(id, { column: col, beforeId, afterId })
       .then((t) => qc.setQueryData<Task[]>(pmKeys.tasks(projectId), (old) => old?.map((x) => (x.id === t.id ? t : x))))
@@ -442,7 +423,7 @@ export function BoardView({ projectId }: { projectId: string }) {
         <div className="p-6 text-sm text-destructive">{errorMessage(tasks.error)}</div>
       ) : (
         <div className="min-h-0 flex-1 overflow-x-auto">
-          <DndContext sensors={sensors} collisionDetection={collision} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
+          <DndContext sensors={sensors} collisionDetection={collision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
             <div className="flex h-full gap-3 p-4">
               {COLUMNS.map((c) => (
                 <Column key={c.id} projectId={projectId} id={c.id} label={c.label} ids={columns[c.id]} byId={byId} milestones={msById} onOpen={setOpenId} />

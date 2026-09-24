@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { toast } from 'sonner';
 import { Bot, Check, ExternalLink, GitBranch, GitPullRequest, MessageSquare, Plus, Tag, Trash2, X } from 'lucide-react';
-import type { Label, Task, TaskColumn, TaskRun } from '@vibe/shared';
+import type { Label, Task, TaskRun } from '@vibe/shared';
 import { useProfiles } from '@/lib/queries';
 import { useNav, useUi } from '@/lib/store';
 import { cn, errorMessage } from '@/lib/utils';
@@ -21,7 +21,7 @@ import { Field } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { useChatAgents } from '@/features/chat/api';
 import { usePersistentState } from '@/features/chat/util';
-import { COLUMNS, pmApi, useLabels, useMilestones, usePmMutation, useRuns, useTasks } from './api';
+import { COLUMN_LABEL, pmApi, useLabels, useMilestones, usePmMutation, useRuns, useTasks } from './api';
 import { formatDateTime, LabelChip, MarkdownField, RunBadge } from './common';
 import { SubtaskList, SubtaskProgress } from './Subtasks';
 
@@ -276,14 +276,14 @@ function TaskEditor({ projectId, task, onClose }: { projectId: string; task: Tas
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Field label="Spalte">
-          <Select value={task.column} onChange={(e) => update.mutate({ column: e.target.value as TaskColumn })}>
-            {COLUMNS.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-          </Select>
+        <Field label="Status">
+          {/* Read-only: the status is set by the agent (board tools), never by the user. */}
+          <div
+            title="Den Status setzt der Agent"
+            className="flex h-8 items-center rounded-lg border border-input bg-muted/40 px-2.5 text-sm text-muted-foreground"
+          >
+            {COLUMN_LABEL[task.column]}
+          </div>
         </Field>
         <Field label="Meilenstein">
           <Select value={task.milestoneId ?? ''} onChange={(e) => update.mutate({ milestoneId: e.target.value || null })}>

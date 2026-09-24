@@ -2,6 +2,11 @@
 
 export const TASK_COLUMNS = ['backlog', 'todo', 'in_progress', 'review', 'done'] as const;
 export type TaskColumn = (typeof TASK_COLUMNS)[number];
+/**
+ * Columns the user may put a new task into. Everything else about progress — moving tasks between columns and
+ * ticking off subtasks — is done by the agent only (board tools); the user API rejects it.
+ */
+export const USER_TASK_COLUMNS = ['backlog', 'todo'] as const satisfies readonly TaskColumn[];
 
 export interface Label {
   id: string;
@@ -63,9 +68,9 @@ export interface TaskInput {
   assigneeProfileId?: string | null;
 }
 
+/** User edit of a subtask. Ticking off is reserved for the agent (board tools). */
 export interface SubtaskInput {
-  title?: string;
-  done?: boolean;
+  title: string;
 }
 
 export interface MoveTaskRequest {
