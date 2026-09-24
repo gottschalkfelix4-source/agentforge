@@ -33,6 +33,7 @@ interface ProfileRow {
   model: string | null;
   extra_args_json: string;
   env_json: string;
+  approval_policy: AgentProfile['approvalPolicy'];
   created_at: string;
 }
 
@@ -59,6 +60,7 @@ const toProfile = (r: ProfileRow): AgentProfile => ({
   model: r.model,
   extraArgs: JSON.parse(r.extra_args_json) as string[],
   env: JSON.parse(r.env_json) as Record<string, string>,
+  approvalPolicy: r.approval_policy ?? 'ask',
   createdAt: r.created_at,
 });
 
@@ -81,6 +83,7 @@ const profileInput = z.object({
   model: z.string().trim().nullish(),
   extraArgs: z.array(z.string()).optional(),
   env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string()).optional(),
+  approvalPolicy: z.enum(['ask', 'edits', 'all']).optional(),
 });
 
 /** Secrets a launch needs: the API key, or for ChatGPT subscriptions tokens valid for a while. */
@@ -265,6 +268,7 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext) {
       model: body.model || null,
       extra_args_json: JSON.stringify(body.extraArgs ?? []),
       env_json: JSON.stringify(body.env ?? {}),
+      approval_policy: body.approvalPolicy ?? 'ask',
       created_at: nowIso(),
     });
     return repo.profile(id);
@@ -281,6 +285,7 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext) {
       model: body.model === undefined ? undefined : body.model || null,
       extra_args_json: body.extraArgs ? JSON.stringify(body.extraArgs) : undefined,
       env_json: body.env ? JSON.stringify(body.env) : undefined,
+      approval_policy: body.approvalPolicy,
     });
     return repo.profile(req.params.id);
   });

@@ -135,7 +135,7 @@ so they keep running while the app server restarts; events are backfilled on rec
 | POST | /api/sessions/:sid/cancel | – | `{ok:true}` (cancels the turn, drops queued prompts, resolves open approvals as `cancelled`) |
 | POST | /api/sessions/:sid/approval | ApprovalResponse | `{ok:true}` |
 | POST | /api/sessions/:sid/mode | `{mode}` | `{ok:true}` (ids from `session.info.modes`) |
-| POST | /api/sessions/:sid/approval-policy | `{policy: ask\|edits\|all}` | AgentSession – "Freigaben": Agentforge answers the agent's permission requests itself (`edits` = file changes, `all` = everything; one-time permission preferred over "always allow"). Open requests the new policy covers are answered right away. Also `approvalPolicy` in CreateSessionRequest / RunTaskRequest (default `ask`). Independent of the agent's own modes. |
+| POST | /api/sessions/:sid/approval-policy | `{policy: ask\|edits\|all}` | AgentSession – "Freigaben": Agentforge answers the agent's permission requests itself (`edits` = file changes, `all` = everything; one-time permission preferred over "always allow"). Open requests the new policy covers are answered right away. Also `approvalPolicy` in CreateSessionRequest / RunTaskRequest; without it the profile's `approvalPolicy` applies (AgentProfile, default `ask`). Independent of the agent's own modes. |
 | POST | /api/sessions/:sid/model | `{model}` | `{ok:true}` (ids from `session.info.models`) |
 | POST | /api/sessions/:sid/stop | – | AgentSession (`stopped`) |
 | POST | /api/sessions/:sid/resume | – | AgentSession (restarts the agent with `resumeExternalId`) |

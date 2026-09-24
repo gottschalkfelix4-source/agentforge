@@ -59,7 +59,18 @@ export function NewSession({ projectId }: { projectId: string }) {
   const storedModel = profileId ? modelPref[profileId] : undefined;
   const model = storedModel && providerModels.includes(storedModel) ? storedModel : fallbackModel;
 
-  const approvalPolicy: ApprovalPolicy = (agent && policyPref[agent.id]) || 'ask';
+  // With a profile its default is preselected (a change here applies to this session only);
+  // without one the last choice per agent is remembered.
+  const [profilePolicy, setProfilePolicy] = React.useState<{ profileId: string; policy: ApprovalPolicy } | null>(null);
+  const approvalPolicy: ApprovalPolicy = profile
+    ? profilePolicy?.profileId === profile.id
+      ? profilePolicy.policy
+      : profile.approvalPolicy
+    : (agent && policyPref[agent.id]) || 'ask';
+  const selectPolicy = (p: ApprovalPolicy) => {
+    if (profile) setProfilePolicy({ profileId: profile.id, policy: p });
+    else if (agent) setPolicyPref({ ...policyPref, [agent.id]: p });
+  };
 
   const send = async (text: string, images: ComposerImage[]): Promise<boolean> => {
     if (!agent) return false;
@@ -135,7 +146,7 @@ export function NewSession({ projectId }: { projectId: string }) {
           setSubError(null);
         }}
       />
-      <ApprovalPolicyPicker value={approvalPolicy} onSelect={(p) => setPolicyPref({ ...policyPref, [agent.id]: p })} />
+      <ApprovalPolicyPicker value={approvalPolicy} onSelect={selectPolicy} />
       {provider && (
         <PickerMenu
           icon={<Cpu className="size-3.5" />}

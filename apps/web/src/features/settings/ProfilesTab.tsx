@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bot, Loader2, Plus } from 'lucide-react';
-import type { AgentAuthMode, AgentProfile, AgentProfileInput } from '@vibe/shared';
+import type { AgentAuthMode, AgentProfile, AgentProfileInput, ApprovalPolicy } from '@vibe/shared';
 import { api } from '@/lib/api';
 import { qk, useAgents, useProfiles, useProviders } from '@/lib/queries';
 import { cn, errorMessage } from '@/lib/utils';
@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { APPROVAL_POLICY_ITEMS } from '@/features/chat/Composer';
 import { EmptyList, ListSkeleton, PROVIDER_KIND_LABEL, RowActions, SectionHeader } from './common';
 
 export function ProfilesTab() {
@@ -62,6 +63,7 @@ export function ProfilesTab() {
                   {[
                     providerName(p.providerId),
                     p.model,
+                    p.approvalPolicy !== 'ask' && `Freigaben: ${APPROVAL_POLICY_ITEMS.find((i) => i.id === p.approvalPolicy)?.name}`,
                     p.extraArgs.length > 0 && p.extraArgs.join(' '),
                     Object.keys(p.env).length > 0 && `${Object.keys(p.env).length} Env-Variablen`,
                   ]
@@ -143,6 +145,7 @@ function ProfileDialog({
   const [model, setModel] = React.useState('');
   const [extraArgs, setExtraArgs] = React.useState('');
   const [envText, setEnvText] = React.useState('');
+  const [approvalPolicy, setApprovalPolicy] = React.useState<ApprovalPolicy>('ask');
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -156,6 +159,7 @@ function ProfileDialog({
       setModel(profile.model ?? '');
       setExtraArgs(joinArgs(profile.extraArgs));
       setEnvText(formatEnv(profile.env));
+      setApprovalPolicy(profile.approvalPolicy);
     } else {
       setAgentKind(agents.data?.[0]?.id ?? '');
       setName('');
@@ -164,13 +168,16 @@ function ProfileDialog({
       setModel('');
       setExtraArgs('');
       setEnvText('');
+      setApprovalPolicy('ask');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, profile]);
 
+  // New profiles whose agent list arrived after opening. Never for an edited profile: in the render that
+  // opens it agentKind is still empty, and this would overwrite the profile's agent set just before.
   React.useEffect(() => {
-    if (open && !agentKind && agents.data?.[0]) setAgentKind(agents.data[0].id);
-  }, [open, agentKind, agents.data]);
+    if (open && !profile && !agentKind && agents.data?.[0]) setAgentKind(agents.data[0].id);
+  }, [open, profile, agentKind, agents.data]);
 
   const manifest = agents.data?.find((a) => a.id === agentKind);
   const allowedKinds = manifest?.providerKinds ?? [];
@@ -197,6 +204,7 @@ function ProfileDialog({
         model: model.trim() || null,
         extraArgs: splitArgs(extraArgs),
         env: envParsed.env,
+        approvalPolicy,
       };
       return profile ? api.updateProfile(profile.id, body) : api.createProfile(body);
     },
@@ -299,6 +307,22 @@ function ProfileDialog({
               ))}
             </datalist>
           </Field>
+
+          {manifest?.structured && (
+            <Field
+              label="Freigaben (Standard)"
+              htmlFor="pf-approval"
+              hint="Vorauswahl für Chat-Sitzungen und Aufgaben mit diesem Profil; im Chat jederzeit änderbar."
+            >
+              <Select id="pf-approval" value={approvalPolicy} onChange={(e) => setApprovalPolicy(e.target.value as ApprovalPolicy)}>
+                {APPROVAL_POLICY_ITEMS.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name} – {i.description}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
 
           <Field label="Zusätzliche Argumente" htmlFor="pf-args" hint="Durch Leerzeichen getrennt; Anführungszeichen für Werte mit Leerzeichen.">
             <Input

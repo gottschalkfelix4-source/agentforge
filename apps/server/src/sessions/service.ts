@@ -429,7 +429,8 @@ export class SessionService {
       current_model: null,
       current_mode: null,
       provider_model: body.model?.trim() || null,
-      approval_policy: body.approvalPolicy ?? 'ask',
+      // Explicit choice > the profile's default > ask.
+      approval_policy: body.approvalPolicy ?? (body.profileId ? providerRepo(this.ctx).profile(body.profileId)?.approvalPolicy : undefined) ?? 'ask',
     };
     // Validates profile + policy before anything is created.
     const params = await this.launchParams(draft, false);

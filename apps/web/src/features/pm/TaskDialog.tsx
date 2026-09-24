@@ -113,13 +113,14 @@ function AgentHandoff({ projectId, task }: { projectId: string; task: Task }) {
   const [agentId, setAgentId] = usePersistentState<string>('vibe-pm-agent', '');
   const [profilePref, setProfilePref] = usePersistentState<Record<string, string | null>>('vibe-pm-profile', {});
   const [autoPr, setAutoPr] = usePersistentState<boolean>('vibe-pm-autopr', true);
-  const [approvalPolicy, setApprovalPolicy] = usePersistentState<ApprovalPolicy>('vibe-pm-approval', 'ask');
+  // '' = the profile's default (ask without a profile).
+  const [approvalPolicy, setApprovalPolicy] = usePersistentState<ApprovalPolicy | ''>('vibe-pm-approval', '');
   const [error, setError] = React.useState<string | null>(null);
   const agent = agents.data.find((a) => a.id === agentId) ?? agents.data[0];
   const agentProfiles = (profiles.data ?? []).filter((p) => p.agentKind === agent?.id);
   const stored = agent ? profilePref[agent.id] : null;
   const profileId = agentProfiles.some((p) => p.id === stored) ? stored! : null;
-  const run = usePmMutation(projectId, () => pmApi.runTask(task.id, { agentId: agent!.id, profileId, autoPr, approvalPolicy }));
+  const run = usePmMutation(projectId, () => pmApi.runTask(task.id, { agentId: agent!.id, profileId, autoPr, approvalPolicy: approvalPolicy || undefined }));
   const running = task.latestRun?.status === 'running';
 
   const start = () => {
@@ -157,7 +158,8 @@ function AgentHandoff({ projectId, task }: { projectId: string; task: Task }) {
           ))}
         </Select>
       </div>
-      <Select value={approvalPolicy} onChange={(e) => setApprovalPolicy(e.target.value as ApprovalPolicy)} aria-label="Freigaben">
+      <Select value={approvalPolicy} onChange={(e) => setApprovalPolicy(e.target.value as ApprovalPolicy | '')} aria-label="Freigaben">
+        <option value="">Freigaben: {profileId ? 'wie im Profil' : 'Manuell nachfragen'}</option>
         <option value="ask">Freigaben: Manuell nachfragen</option>
         <option value="edits">Freigaben: Dateiänderungen automatisch</option>
         <option value="all">Freigaben: Alles erlauben</option>

@@ -1,5 +1,7 @@
 // REST-level domain models shared by server and web.
 
+import type { ApprovalPolicy } from './sessions.js';
+
 export type WorkspaceStatus = 'none' | 'creating' | 'starting' | 'running' | 'stopped' | 'error';
 
 export interface Project {
@@ -101,6 +103,8 @@ export interface AgentProfile {
   model: string | null;
   extraArgs: string[];
   env: Record<string, string>;
+  /** Freigaben preselected for chat sessions and task runs with this profile. */
+  approvalPolicy: ApprovalPolicy;
   createdAt: string;
 }
 
@@ -112,6 +116,7 @@ export interface AgentProfileInput {
   model?: string | null;
   extraArgs?: string[];
   env?: Record<string, string>;
+  approvalPolicy?: ApprovalPolicy;
 }
 
 export interface TerminalInfo {

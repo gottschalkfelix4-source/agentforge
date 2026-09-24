@@ -85,7 +85,7 @@ export function PickerMenu<T extends string>({
   );
 }
 
-const APPROVAL_POLICY_ITEMS: { id: ApprovalPolicy; name: string; description: string; icon: React.ReactNode }[] = [
+export const APPROVAL_POLICY_ITEMS: { id: ApprovalPolicy; name: string; description: string; icon: React.ReactNode }[] = [
   { id: 'ask', name: 'Manuell', description: 'Fragt vor Befehlen und Dateiänderungen nach', icon: <ShieldQuestion className="size-3.5" /> },
   { id: 'edits', name: 'Änderungen automatisch', description: 'Dateiänderungen ohne Rückfrage, Befehle nach Rückfrage', icon: <ShieldCheck className="size-3.5" /> },
   { id: 'all', name: 'Alles erlauben', description: 'Führt alles ohne Rückfrage aus (wie „Bypass permissions“)', icon: <ShieldAlert className="size-3.5 text-warning" /> },

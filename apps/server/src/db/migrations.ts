@@ -245,4 +245,8 @@ export const migrations: string[] = [
   /* v6: Agentforge answers permission requests of a chat session by itself (ask | edits | all) */ `
   ALTER TABLE agent_sessions ADD COLUMN approval_policy TEXT NOT NULL DEFAULT 'ask';
   `,
+
+  /* v7: default approval policy of an agent profile (preselected for its chat sessions and task runs) */ `
+  ALTER TABLE agent_profiles ADD COLUMN approval_policy TEXT NOT NULL DEFAULT 'ask';
+  `,
 ];
