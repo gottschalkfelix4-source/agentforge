@@ -39,15 +39,26 @@ export type ProviderKind =
   | 'anthropic_compat'
   | 'ollama'
   /** Google Gemini API (Phase 6). */
-  | 'gemini';
+  | 'gemini'
+  /** ChatGPT Plus/Pro subscription, logged in once via OpenAI's device flow; tokens are managed by Agentforge. */
+  | 'openai_chatgpt';
+
+/** Account of a ChatGPT subscription provider (no tokens). */
+export interface ChatGptAccount {
+  email: string | null;
+  /** plus | pro | team | … as reported by OpenAI. */
+  planType: string | null;
+}
 
 export interface Provider {
   id: string;
   kind: ProviderKind;
   name: string;
   baseUrl: string | null;
-  /** True when an API key is stored; the key itself is never sent to the browser. */
+  /** True when an API key (or, for openai_chatgpt, a login) is stored; secrets are never sent to the browser. */
   hasKey: boolean;
+  /** openai_chatgpt only: the logged-in account. */
+  account?: ChatGptAccount | null;
   models: string[];
   defaultModel: string | null;
   createdAt: string;
@@ -59,8 +70,24 @@ export interface ProviderInput {
   baseUrl?: string | null;
   /** Omit to keep the existing key, empty string to remove it. */
   apiKey?: string;
+  /** openai_chatgpt: handle of a finished ChatGPT login (POST /api/providers/chatgpt/device/*) to store. */
+  chatgptLogin?: string;
   models?: string[];
   defaultModel?: string | null;
+}
+
+export interface ChatGptDeviceStart {
+  handle: string;
+  userCode: string;
+  verificationUri: string;
+  expiresIn: number;
+  interval: number;
+}
+
+export interface ChatGptDevicePoll {
+  status: 'pending' | 'done' | 'expired' | 'error';
+  account?: ChatGptAccount;
+  message?: string;
 }
 
 export type AgentAuthMode = 'subscription' | 'provider';

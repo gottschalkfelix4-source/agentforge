@@ -32,6 +32,8 @@ Types live in `packages/shared/src/models.ts`.
 | POST | /api/providers | ProviderInput | Provider |
 | PATCH | /api/providers/:id | Partial<ProviderInput> | Provider |
 | DELETE | /api/providers/:id | – | `{ok:true}` |
+| POST | /api/providers/chatgpt/device/start | – | ChatGptDeviceStart `{handle, userCode, verificationUri, expiresIn, interval}` (OpenAI device flow of the Codex CLI) |
+| POST | /api/providers/chatgpt/device/poll | `{handle}` | ChatGptDevicePoll `{status: pending\|done\|expired\|error, account?, message?}`; on `done` the tokens wait server-side (30 min) until a provider is saved with `chatgptLogin: <handle>` |
 | GET | /api/agent-profiles | – | AgentProfile[] |
 | POST | /api/agent-profiles | AgentProfileInput | AgentProfile |
 | PATCH | /api/agent-profiles/:id | Partial<AgentProfileInput> | AgentProfile |
@@ -171,8 +173,17 @@ third-party apps) unless `allowClaudeSubscriptionChat` is set; `invalid_agent` /
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | /api/providers/:id/test | optional overrides `{kind?, baseUrl?, apiKey?}` (stored key is used when `apiKey` is empty) | ProviderTestResult `{ok, models?, error?}` |
-| POST | /api/providers/test | `{kind, baseUrl?, apiKey?}` (unsaved provider) | ProviderTestResult |
+| POST | /api/providers/:id/test | optional overrides `{kind?, baseUrl?, apiKey?, chatgptLogin?}` (stored key is used when `apiKey` is empty) | ProviderTestResult `{ok, models?, error?}` |
+| POST | /api/providers/test | `{kind, baseUrl?, apiKey?, chatgptLogin?}` (unsaved provider) | ProviderTestResult |
+
+**ChatGPT subscription (`openai_chatgpt`, `apps/server/src/chatgpt/`).** Instead of an API key the provider stores
+the tokens of a "Sign in with ChatGPT" login (device flow against `auth.openai.com` with the Codex CLI's client id),
+encrypted as its secret. Only the server refreshes them (refresh tokens rotate and are single-use; one refresh per
+provider at a time, the new tokens are stored immediately). Agents only ever get an access token: launches get one
+valid for ≥ 24 h (at most half the token lifetime), Codex fetches the current one itself via
+`/opt/wsd/agentforge-chatgpt-token <providerId>` → wsd `/app-call` → `app.request` method `chatgpt.token`.
+The connection test lists the Codex model catalog (`chatgpt.com/backend-api/codex/models`, visibility `list`).
+An expired/revoked login yields 401 `chatgpt_relogin` → log in again in the provider dialog.
 | GET | /api/tools/latest | – | AgentToolStatus[] (latest versions only, `installed: null`) |
 | GET | /api/projects/:id/tools | – | AgentToolStatus[] `{agentId,label,bin,installed,latest,updateAvailable,installable,chat}` |
 | POST | /api/projects/:id/tools/install | `{agentId, cols?, rows?}` | TerminalInfo (+ `term.created` event) |
@@ -196,6 +207,8 @@ A profile whose provider kind is not in the manifest's `providerKinds` is reject
 |---|---|
 | Claude Code | anthropic: `ANTHROPIC_API_KEY`; anthropic_compat/openrouter: `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`; ollama: `ANTHROPIC_BASE_URL=<ollama root>` (needs Ollama ≥ 0.14 with its Anthropic-compatible API; the model is also set as `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` because Ollama has no Claude model names; tool use quality depends on the local model) |
 | Codex | openai without base URL: `OPENAI_API_KEY`; otherwise `-c model_provider="vibe"` + `model_providers.vibe.{name,base_url,env_key="VIBE_PROVIDER_KEY",wire_api="responses"}` (Codex 0.15x rejects `wire_api="chat"`; the endpoint must serve `/v1/responses` – Ollama ≥ 0.13, OpenRouter, LiteLLM do). Ollama base `<root>/v1`. |
+| Codex × openai_chatgpt | custom provider `vibe` with `base_url="https://chatgpt.com/backend-api/codex"`, `wire_api="responses"`, `auth.command=/opt/wsd/agentforge-chatgpt-token` + `auth.args=[<providerId>]` (Codex re-runs it every 5 min and after a 401) and `env_http_headers={"ChatGPT-Account-ID"="VIBE_CHATGPT_ACCOUNT_ID"}`. Needs the workspace image with the helper. |
+| OpenCode / Kilo × openai_chatgpt | built-in `openai` OAuth login via `OPENCODE_AUTH_CONTENT` / `KILO_AUTH_CONTENT` = `{"openai":{"type":"oauth","access","refresh":"","expires","accountId"}}` (replaces auth.json for the process; no refresh token, so a session lasts until the access token expires – resuming the session injects a fresh one); config only sets `model: "openai/<model>"`. OpenCode only offers its Codex-approved models (e.g. gpt-5.5). |
 | OpenCode / Kilo | inline JSON config in `OPENCODE_CONFIG_CONTENT` / `KILO_CONFIG_CONTENT` (merged over the user config): native providers `anthropic`/`openai`/`google`, otherwise provider `vibe` with `@ai-sdk/openai-compatible` (openai_compat/openrouter/ollama `<root>/v1`) or `@ai-sdk/anthropic` (anthropic_compat), models = provider models + selected model. Key as `{env:VIBE_PROVIDER_KEY}`. Model becomes `<provider>/<model>` (`--model` for the TUI, ACP `set_model` for chats). |
 | Gemini CLI | kind `gemini`: `GEMINI_API_KEY`, `GEMINI_DEFAULT_AUTH_TYPE=gemini-api-key`, optional `GOOGLE_GEMINI_BASE_URL`. |
 | Qwen Code | OpenAI-like kinds: `OPENAI_API_KEY/OPENAI_BASE_URL/OPENAI_MODEL`; anthropic(-compat): `ANTHROPIC_API_KEY/BASE_URL/MODEL`; gemini: `GEMINI_API_KEY/GEMINI_MODEL`; plus `--auth-type <openai\|anthropic\|gemini>` (TUI and ACP) and `QWEN_DEFAULT_AUTH_TYPE`. |

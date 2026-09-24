@@ -8,6 +8,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 export const PROVIDER_KIND_LABEL: Record<ProviderKind, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
+  openai_chatgpt: 'OpenAI-Abo (ChatGPT)',
   openrouter: 'OpenRouter',
   openai_compat: 'OpenAI-kompatibel',
   anthropic_compat: 'Anthropic-kompatibel',

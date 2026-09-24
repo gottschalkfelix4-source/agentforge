@@ -41,6 +41,8 @@ RUN set -eux; \
     node -e "require('node-pty')"
 # git credential helper (asks wsd over its local socket; tokens stay in wsd memory)
 RUN cp packages/workspace-daemon/scripts/git-credential-vibe /opt/wsd/git-credential-vibe
+# Access token of a ChatGPT subscription provider for Codex (`auth.command`), asked from the app via wsd
+RUN cp packages/workspace-daemon/scripts/agentforge-chatgpt-token /opt/wsd/agentforge-chatgpt-token
 
 # ---------------------------------------------------------------------------
 # Stage 2: the workspace image
@@ -148,7 +150,8 @@ RUN sed -i 's/\r$//' /usr/local/bin/install-agents.sh && chmod 755 /usr/local/bi
 
 # Workspace daemon
 COPY --from=wsd-build /opt/wsd /opt/wsd
-RUN sed -i 's/\r$//' /opt/wsd/git-credential-vibe && chmod 755 /opt/wsd/git-credential-vibe \
+RUN sed -i 's/\r$//' /opt/wsd/git-credential-vibe /opt/wsd/agentforge-chatgpt-token \
+ && chmod 755 /opt/wsd/git-credential-vibe /opt/wsd/agentforge-chatgpt-token \
  && git config --system credential.helper /opt/wsd/git-credential-vibe \
  && printf '#!/bin/sh\nexec node /opt/wsd/agentforge-mcp.js "$@"\n' > /usr/local/bin/agentforge-mcp \
  && chmod 755 /usr/local/bin/agentforge-mcp

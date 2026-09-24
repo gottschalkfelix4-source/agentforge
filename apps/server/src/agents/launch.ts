@@ -9,6 +9,8 @@ export interface LaunchContext {
   provider: ProviderRecord | null;
   /** Decrypted API key of the provider, if any. */
   apiKey: string | null;
+  /** openai_chatgpt: current subscription tokens (see ChatGptService.tokens). */
+  chatgpt?: { accessToken: string; accountId: string; expiresAt: number } | null;
   /** Provider model chosen for this launch (chat model picker); overrides profile/provider defaults. */
   modelOverride?: string | null;
 }
@@ -31,7 +33,8 @@ function resolve(m: AgentManifest, ctx: LaunchContext): Resolved {
     throw new HttpError(400, 'invalid_profile', `${m.label} unterstützt Provider vom Typ „${p.kind}“ nicht`);
   }
   const model = ctx.modelOverride || profile.model || p.defaultModel || null;
-  const render = renderProvider(m.id, { provider: p, apiKey: ctx.apiKey ?? '', model });
+  const chatgpt = ctx.chatgpt ? { accessToken: ctx.chatgpt.accessToken, accountId: ctx.chatgpt.accountId, expiresAt: ctx.chatgpt.expiresAt } : null;
+  const render = renderProvider(m.id, { provider: p, apiKey: ctx.apiKey ?? '', model, chatgpt });
   const effective = render.model !== undefined ? render.model : model;
   return { render, model: effective, structuredModel: render.structuredModel !== undefined ? render.structuredModel : effective };
 }

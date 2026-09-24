@@ -39,14 +39,17 @@ describe('provider renderers: no secrets in args', () => {
   for (const m of AGENT_MANIFESTS) {
     for (const kind of m.providerKinds) {
       it(`${m.id} × ${kind}`, () => {
-        const ctx = { profile: profile(m.id), provider: provider(kind, { baseUrl: kind.endsWith('compat') ? 'https://x.example/v1' : null }), apiKey: KEY };
+        const chatgpt = kind === 'openai_chatgpt' ? { accessToken: KEY, accountId: 'acc-1', expiresAt: 1 } : null;
+        const ctx = { profile: profile(m.id), provider: provider(kind, { baseUrl: kind.endsWith('compat') ? 'https://x.example/v1' : null }), apiKey: chatgpt ? null : KEY, chatgpt };
+        // Codex fetches the ChatGPT token itself (auth.command), so it is in neither args nor env.
+        const keyInEnv = kind !== 'ollama' && !(kind === 'openai_chatgpt' && m.id === 'codex');
         const tui = buildAgentLaunch(m.id, 'run', ctx);
         expect(JSON.stringify(tui.args)).not.toContain(KEY);
-        if (kind !== 'ollama') expect(JSON.stringify(tui.env)).toContain(KEY);
+        if (keyInEnv) expect(JSON.stringify(tui.env)).toContain(KEY);
         if (m.structured) {
           const s = buildStructuredLaunch(m.id, ctx);
           expect(JSON.stringify(s.args)).not.toContain(KEY);
-          if (kind !== 'ollama') expect(JSON.stringify(s.env)).toContain(KEY);
+          if (keyInEnv) expect(JSON.stringify(s.env)).toContain(KEY);
         }
       });
     }
@@ -79,6 +82,37 @@ describe('codex', () => {
   });
   it('plain OpenAI only sets OPENAI_API_KEY', () => {
     expect(render('codex', 'openai')).toMatchObject({ env: { OPENAI_API_KEY: KEY }, args: [] });
+  });
+  it('ChatGPT subscription → chatgpt backend, token via auth.command, account id header from env', () => {
+    const r = renderProvider('codex', {
+      provider: provider('openai_chatgpt', { id: 'prov-cg', secretId: 's' }),
+      apiKey: '',
+      model: 'gpt-5.5',
+      chatgpt: { accessToken: KEY, accountId: 'acc-1', expiresAt: 1 },
+    });
+    expect(r.args).toContain('model_providers.vibe.base_url="https://chatgpt.com/backend-api/codex"');
+    expect(r.args).toContain('model_providers.vibe.auth.command="/opt/wsd/agentforge-chatgpt-token"');
+    expect(r.args).toContain('model_providers.vibe.auth.args=["prov-cg"]');
+    expect(r.args).toContain('model_providers.vibe.env_http_headers={"ChatGPT-Account-ID"="VIBE_CHATGPT_ACCOUNT_ID"}');
+    expect(r.structuredArgs).toEqual(r.args);
+    expect(r.env).toEqual({ VIBE_CHATGPT_ACCOUNT_ID: 'acc-1' });
+  });
+});
+
+describe('opencode / kilo with a ChatGPT subscription', () => {
+  it('uses the built-in openai OAuth login without a refresh token', () => {
+    for (const [agent, prefix] of [['opencode', 'OPENCODE'], ['kilo', 'KILO']] as const) {
+      const r = renderProvider(agent, {
+        provider: provider('openai_chatgpt'),
+        apiKey: '',
+        model: 'gpt-5.5',
+        chatgpt: { accessToken: KEY, accountId: 'acc-1', expiresAt: 1234 },
+      });
+      expect(JSON.parse(r.env[`${prefix}_CONFIG_CONTENT`]!)).toEqual({ model: 'openai/gpt-5.5' });
+      expect(JSON.parse(r.env[`${prefix}_AUTH_CONTENT`]!)).toEqual({ openai: { type: 'oauth', access: KEY, refresh: '', expires: 1234, accountId: 'acc-1' } });
+      expect(r.env.VIBE_PROVIDER_KEY).toBeUndefined();
+      expect(r.model).toBe('openai/gpt-5.5');
+    }
   });
 });
 

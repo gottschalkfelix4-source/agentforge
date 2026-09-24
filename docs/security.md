@@ -61,6 +61,8 @@ Agents in „Auto-Approve“-Modi laufen lassen.
   (dann liegen Schlüssel und Daten zusammen – schwächer, und Backups enthalten den Schlüssel).
 - Secrets werden nur dem jeweiligen Agent-Prozess als Umgebungsvariablen übergeben, nie als
   Container-Umgebung und nie an den Browser zurückgegeben.
+- Der Provider „OpenAI-Abo (ChatGPT)“ speichert seine OAuth-Tokens verschlüsselt wie API-Keys. Nur der Server
+  erneuert sie; Agents bekommen ausschließlich das kurzlebige Access-Token, nie das Refresh-Token.
 - Abo-Logins der Agent-CLIs (OAuth-Tokens) liegen – wie bei lokaler Nutzung – im Klartext in `agent-home/`.
   Das Datenverzeichnis entsprechend schützen (Berechtigungen, verschlüsselte Backups).
 
@@ -78,7 +80,8 @@ Previews zeigen Code, den Agents geschrieben haben, im eigenen Browser an.
 ## Claude-Abo & andere Abo-Logins
 
 Mit „Anmelden (Abo-Login)“ nutzt ein Agent-CLI dein persönliches Abo (z. B. Claude Pro/Max, ChatGPT Plus) so, als
-würdest du das CLI lokal verwenden. Abo-Zugänge sind **persönlich**: Agentforge nicht für andere Personen freigeben
+würdest du das CLI lokal verwenden. Der Provider „OpenAI-Abo (ChatGPT)“ meldet sich dafür mit derselben Kennung wie
+die Codex-CLI bei OpenAI an. Abo-Zugänge sind **persönlich**: Agentforge nicht für andere Personen freigeben
 oder als Dienst anbieten, und die aktuellen Nutzungsbedingungen des jeweiligen Anbieters beachten. Für geteilte,
 automatisierte oder produktive Nutzung API-Keys (Einstellungen → Provider) verwenden.
 

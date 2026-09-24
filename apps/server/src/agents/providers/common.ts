@@ -5,6 +5,8 @@ export interface RenderInput {
   provider: ProviderRecord;
   apiKey: string;
   model: string | null;
+  /** openai_chatgpt: current access token of the subscription login (never the refresh token). */
+  chatgpt?: { accessToken: string; accountId: string; expiresAt: number } | null;
 }
 
 /**
@@ -33,6 +35,8 @@ export const OPENROUTER_OPENAI = 'https://openrouter.ai/api/v1';
 export const OPENROUTER_ANTHROPIC = 'https://openrouter.ai/api';
 export const OLLAMA_DEFAULT = 'http://host.docker.internal:11434';
 export const GEMINI_BASE = 'https://generativelanguage.googleapis.com';
+/** Prints the current access token of a ChatGPT provider (Codex `auth.command`), see scripts/agentforge-chatgpt-token. */
+export const CHATGPT_TOKEN_HELPER = '/opt/wsd/agentforge-chatgpt-token';
 
 const trimSlash = (u: string) => u.replace(/\/+$/, '');
 

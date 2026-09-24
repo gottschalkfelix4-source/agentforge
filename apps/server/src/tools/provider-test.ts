@@ -1,5 +1,6 @@
 import type { ProviderKind, ProviderTestResult } from '@vibe/shared';
 import { ANTHROPIC_BASE, GEMINI_BASE, ollamaRoot, openaiBase, anthropicRoot } from '../agents/providers/common.js';
+import { CHATGPT_CODEX_BASE } from '../chatgpt/auth.js';
 import type { ProviderRecord } from '../routes/providers.js';
 
 export interface ProviderProbe {
@@ -99,5 +100,38 @@ export async function testProvider(p: ProviderProbe, fetchImpl: Fetch = fetch, t
     if (e.name === 'TimeoutError' || e.name === 'AbortError') return { ok: false, error: `Zeitüberschreitung nach ${timeoutMs / 1000} s (${new URL(req.url).host})` };
     const cause = e.cause?.code ?? e.cause?.message ?? e.message;
     return { ok: false, error: redact(`Nicht erreichbar (${new URL(req.url).host}): ${cause}`) };
+  }
+}
+
+/** Codex version sent as `client_version`; the backend lists the models this version can use. */
+export const CODEX_CLIENT_VERSION = '0.156.1';
+
+/**
+ * ChatGPT subscription: lists the Codex model catalog with the stored login (models with visibility "list").
+ * `tokens` null = not logged in.
+ */
+export async function testChatGptProvider(
+  tokens: { accessToken: string; accountId: string } | null,
+  fetchImpl: Fetch = fetch,
+  timeoutMs = 10_000,
+): Promise<ProviderTestResult> {
+  if (!tokens) return { ok: false, error: 'Nicht bei ChatGPT angemeldet' };
+  const url = `${CHATGPT_CODEX_BASE}/models?client_version=${CODEX_CLIENT_VERSION}`;
+  try {
+    const res = await fetchImpl(url, {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${tokens.accessToken}`, 'ChatGPT-Account-ID': tokens.accountId, originator: 'codex_cli_rs' },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (res.status === 401 || res.status === 403) return { ok: false, error: `HTTP ${res.status}: ChatGPT-Anmeldung wurde abgelehnt – bitte neu anmelden` };
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}` };
+    const body = (await res.json()) as { models?: { slug?: unknown; visibility?: unknown }[] };
+    const models = (body.models ?? [])
+      .filter((m) => typeof m.slug === 'string' && (m.visibility === undefined || m.visibility === 'list'))
+      .map((m) => m.slug as string);
+    return { ok: true, models: [...new Set(models)] };
+  } catch (err) {
+    const e = err as Error;
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') return { ok: false, error: `Zeitüberschreitung nach ${timeoutMs / 1000} s (chatgpt.com)` };
+    return { ok: false, error: `Nicht erreichbar (chatgpt.com): ${e.message}` };
   }
 }

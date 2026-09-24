@@ -22,10 +22,10 @@ export const toolsApi = {
   chatSettings: () => request<ChatSettings>('/settings/chat'),
   setChatSettings: (body: ChatSettings) => request<ChatSettings>('/settings/chat', { method: 'PUT', body }),
   /** Test an unsaved provider configuration. */
-  testProvider: (body: { kind: ProviderKind; baseUrl?: string | null; apiKey?: string }) =>
+  testProvider: (body: { kind: ProviderKind; baseUrl?: string | null; apiKey?: string; chatgptLogin?: string }) =>
     request<ProviderTestResult>('/providers/test', { method: 'POST', body }),
   /** Test a saved provider; optional overrides use the stored key with changed kind/URL. */
-  testSavedProvider: (id: string, body: { kind?: ProviderKind; baseUrl?: string | null; apiKey?: string } = {}) =>
+  testSavedProvider: (id: string, body: { kind?: ProviderKind; baseUrl?: string | null; apiKey?: string; chatgptLogin?: string } = {}) =>
     request<ProviderTestResult>(`/providers/${encodeURIComponent(id)}/test`, { method: 'POST', body }),
 };
 

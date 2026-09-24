@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+// Prints the current access token of an Agentforge ChatGPT subscription provider (Codex `auth.command`).
+// Usage: agentforge-chatgpt-token <providerId>. Asks the app through wsd (POST /app-call); the app refreshes
+// the login centrally, so no refresh token ever reaches the workspace.
+import { readFileSync } from 'node:fs';
+
+const providerId = process.argv[2];
+if (!providerId) {
+  process.stderr.write('usage: agentforge-chatgpt-token <providerId>\n');
+  process.exit(2);
+}
+
+function wsdToken() {
+  for (const file of ['/run/wsd/token', process.env.WSD_TOKEN_FILE, '/run/vibe/wsd-token']) {
+    if (!file) continue;
+    try {
+      const t = readFileSync(file, 'utf8').trim();
+      if (t) return t;
+    } catch {
+      /* next */
+    }
+  }
+  return process.env.WSD_TOKEN || null;
+}
+
+const fail = (msg) => {
+  process.stderr.write(`agentforge-chatgpt-token: ${msg}\n`);
+  process.exit(1);
+};
+
+const token = wsdToken();
+if (!token) fail('Agentforge-Token nicht gefunden – läuft dieser Prozess im Workspace?');
+const port = Number(process.env.WSD_PORT ?? 7777);
+try {
+  const res = await fetch(`http://127.0.0.1:${port}/app-call`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ method: 'chatgpt.token', params: { providerId } }),
+    signal: AbortSignal.timeout(25_000),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.error) fail(body.error ?? `HTTP ${res.status}`);
+  if (typeof body.result?.accessToken !== 'string') fail('keine Antwort');
+  process.stdout.write(body.result.accessToken);
+} catch (err) {
+  fail(`Agentforge nicht erreichbar: ${err.message}`);
+}

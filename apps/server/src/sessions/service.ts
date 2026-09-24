@@ -305,10 +305,10 @@ export class SessionService {
 
   // ---- launch -------------------------------------------------------------------------
 
-  private launchParams(
+  private async launchParams(
     row: Pick<SessionRow, 'id' | 'agent_id' | 'profile_id' | 'cwd' | 'last_seq' | 'external_id' | 'current_model' | 'current_mode' | 'provider_model'>,
     resume: boolean,
-  ): AgentStartParams {
+  ): Promise<AgentStartParams> {
     const repo = providerRepo(this.ctx);
     const profile = row.profile_id ? repo.profile(row.profile_id) : null;
     if (row.profile_id && !profile) throw new HttpError(400, 'invalid_profile', 'Profil nicht gefunden');
@@ -321,10 +321,10 @@ export class SessionService {
       );
     }
     const provider = profile?.providerId ? repo.get(profile.providerId) : null;
-    const apiKey = provider?.secretId ? this.ctx.secrets.get(provider.secretId) : null;
+    const creds = profile?.authMode === 'provider' ? await repo.credentials(provider) : { apiKey: null, chatgpt: null };
     let launch;
     try {
-      launch = buildStructuredLaunch(row.agent_id, { profile, provider, apiKey, modelOverride: row.provider_model ?? null });
+      launch = buildStructuredLaunch(row.agent_id, { profile, provider, ...creds, modelOverride: row.provider_model ?? null });
     } catch (err) {
       throw new HttpError(400, 'invalid_agent', (err as Error).message);
     }
@@ -424,7 +424,7 @@ export class SessionService {
       provider_model: body.model?.trim() || null,
     };
     // Validates profile + policy before anything is created.
-    const params = this.launchParams(draft, false);
+    const params = await this.launchParams(draft, false);
     const client = await this.ctx.workspaces.waitForClient(projectId, 5_000);
     const now = nowIso();
     this.ctx.db.insert('agent_sessions', {
@@ -456,7 +456,7 @@ export class SessionService {
   async resume(id: string): Promise<AgentSession> {
     this.syncProviderModels(id);
     const row = this.store.require(id);
-    const params = this.launchParams(row, true);
+    const params = await this.launchParams(row, true);
     const client = await this.clientFor(row);
     this.store.patch(id, { status: 'starting', status_message: null });
     await this.startAgent(client, params);

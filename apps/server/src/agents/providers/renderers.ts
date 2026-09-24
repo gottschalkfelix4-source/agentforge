@@ -1,8 +1,10 @@
 // Per-agent provider renderers: turn a provider (+ key + model) into env/args for one agent CLI.
 // Secrets only ever go into env. Behaviour and limitations: docs/api.md, section "Provider-Renderer".
 
+import { CHATGPT_CODEX_BASE } from '../../chatgpt/auth.js';
 import {
   anthropicRoot,
+  CHATGPT_TOKEN_HELPER,
   empty,
   keyOr,
   ollamaRoot,
@@ -49,8 +51,25 @@ export const renderClaude: ProviderRenderer = ({ provider: p, apiKey, model }) =
 
 // ---- Codex ------------------------------------------------------------------------------------
 
-export const renderCodex: ProviderRenderer = ({ provider: p, apiKey }) => {
+export const renderCodex: ProviderRenderer = ({ provider: p, apiKey, chatgpt }) => {
   const r = empty();
+  if (p.kind === 'openai_chatgpt') {
+    // ChatGPT subscription: Codex asks Agentforge for the current access token (`auth.command`, re-run every
+    // 5 min and after a 401), so long sessions survive token rotation. The account id travels as a header.
+    r.env.VIBE_CHATGPT_ACCOUNT_ID = chatgpt?.accountId ?? '';
+    const args = [
+      '-c', `model_provider="vibe"`,
+      '-c', `model_providers.vibe.name=${JSON.stringify(p.name)}`,
+      '-c', `model_providers.vibe.base_url=${JSON.stringify(CHATGPT_CODEX_BASE)}`,
+      '-c', `model_providers.vibe.wire_api="responses"`,
+      '-c', `model_providers.vibe.auth.command=${JSON.stringify(CHATGPT_TOKEN_HELPER)}`,
+      '-c', `model_providers.vibe.auth.args=[${JSON.stringify(p.id)}]`,
+      '-c', `model_providers.vibe.env_http_headers={"ChatGPT-Account-ID"="VIBE_CHATGPT_ACCOUNT_ID"}`,
+    ];
+    r.args = args;
+    r.structuredArgs = [...args];
+    return r;
+  }
   if (p.kind === 'openai' && !p.baseUrl) {
     r.env.OPENAI_API_KEY = apiKey;
     return r;
@@ -78,6 +97,11 @@ const KEY_REF = '{env:VIBE_PROVIDER_KEY}';
 /** Inline config (OPENCODE_CONFIG_CONTENT / KILO_CONFIG_CONTENT); the key is referenced, never embedded. */
 export function openCodeConfig(input: Parameters<ProviderRenderer>[0]): { config: Record<string, unknown>; model: string | null } {
   const { provider: p, model } = input;
+  // ChatGPT subscription: OpenCode's built-in `openai` OAuth login (tokens via OPENCODE_AUTH_CONTENT).
+  if (p.kind === 'openai_chatgpt') {
+    const fullModel = model ? `openai/${model}` : null;
+    return { config: fullModel ? { model: fullModel } : {}, model: fullModel };
+  }
   const native = NATIVE_OPENCODE[p.kind];
   let providerId: string;
   let providerCfg: Record<string, unknown>;
@@ -104,18 +128,27 @@ export function openCodeConfig(input: Parameters<ProviderRenderer>[0]): { config
 }
 
 const openCodeLike =
-  (envVar: string): ProviderRenderer =>
+  (prefix: 'OPENCODE' | 'KILO'): ProviderRenderer =>
   (input) => {
     const r = empty();
     const { config, model } = openCodeConfig(input);
-    r.env[envVar] = JSON.stringify(config);
-    r.env.VIBE_PROVIDER_KEY = keyOr(input.apiKey);
+    r.env[`${prefix}_CONFIG_CONTENT`] = JSON.stringify(config);
+    if (input.provider.kind === 'openai_chatgpt') {
+      // Replaces auth.json for this process. No refresh token: it rotates and only Agentforge may use it,
+      // so the session works until the access token expires (a restart of the session gets a fresh one).
+      const t = input.chatgpt;
+      r.env[`${prefix}_AUTH_CONTENT`] = JSON.stringify({
+        openai: { type: 'oauth', access: t?.accessToken ?? '', refresh: '', expires: t?.expiresAt ?? 0, accountId: t?.accountId ?? '' },
+      });
+    } else {
+      r.env.VIBE_PROVIDER_KEY = keyOr(input.apiKey);
+    }
     r.model = model;
     return r;
   };
 
-export const renderOpenCode = openCodeLike('OPENCODE_CONFIG_CONTENT');
-export const renderKilo = openCodeLike('KILO_CONFIG_CONTENT');
+export const renderOpenCode = openCodeLike('OPENCODE');
+export const renderKilo = openCodeLike('KILO');
 
 // ---- Gemini CLI -------------------------------------------------------------------------------
 

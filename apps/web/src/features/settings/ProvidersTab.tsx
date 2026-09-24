@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, KeyRound, ListRestart, Loader2, Plug, Plus, XCircle } from 'lucide-react';
-import type { Provider, ProviderInput, ProviderKind, ProviderTestResult } from '@vibe/shared';
+import type { ChatGptAccount, Provider, ProviderInput, ProviderKind, ProviderTestResult } from '@vibe/shared';
 import { api } from '@/lib/api';
 import { toolsApi } from '@/features/tools/api';
 import { qk, useProviders } from '@/lib/queries';
@@ -14,9 +14,11 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyList, ListSkeleton, PROVIDER_KIND_LABEL, PROVIDER_KINDS, RowActions, SectionHeader } from './common';
+import { accountLabel, ChatGptLogin } from './ChatGptLogin';
 
 const OLLAMA_DEFAULT_URL = 'http://host.docker.internal:11434';
 const needsBaseUrl = (k: ProviderKind) => k === 'openai_compat' || k === 'anthropic_compat';
+const CHATGPT: ProviderKind = 'openai_chatgpt';
 
 export function ProvidersTab() {
   const providers = useProviders();
@@ -28,7 +30,7 @@ export function ProvidersTab() {
     <div>
       <SectionHeader
         title="Provider"
-        description="API-Zugänge für Agents im Modus „Provider/API-Key“. Schlüssel werden verschlüsselt gespeichert."
+        description="API-Zugänge und Abos für Agents im Modus „Provider/API-Key“. Schlüssel und Logins werden verschlüsselt gespeichert."
         action={
           <Button size="sm" onClick={() => setEditing('new')}>
             <Plus /> Provider hinzufügen
@@ -49,10 +51,20 @@ export function ProvidersTab() {
                 <div className="flex items-center gap-2">
                   <span className="truncate font-medium">{p.name}</span>
                   <Badge variant="outline">{PROVIDER_KIND_LABEL[p.kind]}</Badge>
-                  {p.hasKey ? <Badge variant="success">Key gespeichert</Badge> : p.kind !== 'ollama' && <Badge variant="warning">Kein Key</Badge>}
+                  {p.kind === CHATGPT ? (
+                    p.account ? (
+                      <Badge variant="success">Angemeldet</Badge>
+                    ) : (
+                      <Badge variant="warning">Nicht angemeldet</Badge>
+                    )
+                  ) : p.hasKey ? (
+                    <Badge variant="success">Key gespeichert</Badge>
+                  ) : (
+                    p.kind !== 'ollama' && <Badge variant="warning">Kein Key</Badge>
+                  )}
                 </div>
                 <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {[p.baseUrl, p.defaultModel && `Standard: ${p.defaultModel}`, p.models.length > 0 && `${p.models.length} Modelle`]
+                  {[p.account && accountLabel(p.account), p.baseUrl, p.defaultModel && `Standard: ${p.defaultModel}`, p.models.length > 0 && `${p.models.length} Modelle`]
                     .filter(Boolean)
                     .join(' · ') || '—'}
                 </div>
@@ -102,12 +114,15 @@ function ProviderDialog({
   const [defaultModel, setDefaultModel] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
   const [test, setTest] = React.useState<ProviderTestResult | null>(null);
+  // ChatGPT subscription: a login finished in this dialog (saved together with the provider).
+  const [login, setLogin] = React.useState<{ handle: string; account: ChatGptAccount } | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
     setError(null);
     setTest(null);
     setApiKey('');
+    setLogin(null);
     if (provider) {
       setKind(provider.kind);
       setName(provider.name);
@@ -127,6 +142,7 @@ function ProviderDialog({
     setKind(k);
     if (k === 'ollama' && !baseUrl) setBaseUrl(OLLAMA_DEFAULT_URL);
     if (k !== 'ollama' && baseUrl === OLLAMA_DEFAULT_URL) setBaseUrl('');
+    if (k === CHATGPT) setBaseUrl('');
     if (!name || name === PROVIDER_KIND_LABEL[kind]) setName(PROVIDER_KIND_LABEL[k]);
   };
 
@@ -144,7 +160,9 @@ function ProviderDialog({
         defaultModel: defaultModel.trim() || null,
       };
       // Omit apiKey to keep the stored key when editing and the field is empty.
-      if (apiKey.trim()) body.apiKey = apiKey.trim();
+      if (kind === CHATGPT) {
+        if (login) body.chatgptLogin = login.handle;
+      } else if (apiKey.trim()) body.apiKey = apiKey.trim();
       return provider ? api.updateProvider(provider.id, body) : api.createProvider(body);
     },
     onSuccess: () => {
@@ -157,7 +175,10 @@ function ProviderDialog({
   // Test the dialog's current values; a saved provider falls back to its stored key.
   const runTest = useMutation({
     mutationFn: (_fill: boolean) => {
-      const body = { kind, baseUrl: baseUrl.trim() || null, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) };
+      const body =
+        kind === CHATGPT
+          ? { kind, ...(login ? { chatgptLogin: login.handle } : {}) }
+          : { kind, baseUrl: baseUrl.trim() || null, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) };
       return provider ? toolsApi.testSavedProvider(provider.id, body) : toolsApi.testProvider(body);
     },
     onSuccess: (res, fill) => {
@@ -169,10 +190,13 @@ function ProviderDialog({
     },
     onError: (err) => setTest({ ok: false, error: errorMessage(err) }),
   });
-  React.useEffect(() => setTest(null), [kind, baseUrl, apiKey]);
+  React.useEffect(() => setTest(null), [kind, baseUrl, apiKey, login]);
 
+  const chatgpt = kind === CHATGPT;
+  const account = login?.account ?? (provider?.kind === CHATGPT ? (provider.account ?? null) : null);
   const baseUrlRequired = needsBaseUrl(kind);
-  const valid = name.trim() && (!baseUrlRequired || baseUrl.trim());
+  const valid = name.trim() && (!baseUrlRequired || baseUrl.trim()) && (!chatgpt || !!account);
+  const testable = chatgpt ? !!account : !(baseUrlRequired && !baseUrl.trim());
   const modelOptions = models
     .split(/[,\n]/)
     .map((m) => m.trim())
@@ -205,47 +229,55 @@ function ProviderDialog({
               <Input id="pv-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Anthropic privat" />
             </Field>
           </div>
-          <Field
-            label={baseUrlRequired ? 'Base-URL' : 'Base-URL (optional)'}
-            htmlFor="pv-url"
-            hint={kind === 'ollama' ? 'Aus dem Container erreichbar, z. B. über host.docker.internal.' : undefined}
-          >
-            <Input
-              id="pv-url"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder={
-                kind === 'ollama'
-                  ? OLLAMA_DEFAULT_URL
-                  : kind === 'openai_compat'
-                    ? 'https://api.example.com/v1'
-                    : kind === 'anthropic_compat'
-                      ? 'https://api.example.com'
-                      : kind === 'gemini'
-                        ? 'https://generativelanguage.googleapis.com'
-                        : 'Standard des Anbieters'
-              }
-              className="font-mono text-[13px]"
-              spellCheck={false}
-            />
-          </Field>
-          <Field label="API-Key" htmlFor="pv-key">
-            <Input
-              id="pv-key"
-              type="password"
-              autoComplete="new-password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={provider?.hasKey ? 'gespeichert – leer lassen um zu behalten' : kind === 'ollama' ? 'nicht erforderlich' : 'sk-…'}
-              className="font-mono text-[13px]"
-            />
-          </Field>
+          {chatgpt ? (
+            <Field label="Anmeldung" hint="Nutzt dein ChatGPT-Abo mit Codex, OpenCode und Kilo. Agentforge erneuert die Anmeldung selbst.">
+              <ChatGptLogin account={account} onLogin={(handle, a) => setLogin({ handle, account: a })} />
+            </Field>
+          ) : (
+            <>
+              <Field
+                label={baseUrlRequired ? 'Base-URL' : 'Base-URL (optional)'}
+                htmlFor="pv-url"
+                hint={kind === 'ollama' ? 'Aus dem Container erreichbar, z. B. über host.docker.internal.' : undefined}
+              >
+                <Input
+                  id="pv-url"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder={
+                    kind === 'ollama'
+                      ? OLLAMA_DEFAULT_URL
+                      : kind === 'openai_compat'
+                        ? 'https://api.example.com/v1'
+                        : kind === 'anthropic_compat'
+                          ? 'https://api.example.com'
+                          : kind === 'gemini'
+                            ? 'https://generativelanguage.googleapis.com'
+                            : 'Standard des Anbieters'
+                  }
+                  className="font-mono text-[13px]"
+                  spellCheck={false}
+                />
+              </Field>
+              <Field label="API-Key" htmlFor="pv-key">
+                <Input
+                  id="pv-key"
+                  type="password"
+                  autoComplete="new-password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={provider?.hasKey ? 'gespeichert – leer lassen um zu behalten' : kind === 'ollama' ? 'nicht erforderlich' : 'sk-…'}
+                  className="font-mono text-[13px]"
+                />
+              </Field>
+            </>
+          )}
           <Field label="Modelle" htmlFor="pv-models" hint="Kommagetrennt.">
             <Input
               id="pv-models"
               value={models}
               onChange={(e) => setModels(e.target.value)}
-              placeholder="claude-sonnet-4-5, claude-opus-4-1"
+              placeholder={chatgpt ? 'Über „Modelle laden“ abrufen' : 'claude-sonnet-4-5, claude-opus-4-1'}
               className="font-mono text-[13px]"
               spellCheck={false}
             />
@@ -271,7 +303,7 @@ function ProviderDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={runTest.isPending || (baseUrlRequired && !baseUrl.trim())}
+                disabled={runTest.isPending || !testable}
                 onClick={() => runTest.mutate(false)}
               >
                 {runTest.isPending && !runTest.variables ? <Loader2 className="animate-spin" /> : <Plug />}
@@ -281,7 +313,7 @@ function ProviderDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={runTest.isPending || (baseUrlRequired && !baseUrl.trim())}
+                disabled={runTest.isPending || !testable}
                 onClick={() => runTest.mutate(true)}
               >
                 {runTest.isPending && runTest.variables ? <Loader2 className="animate-spin" /> : <ListRestart />}

@@ -163,6 +163,9 @@ export interface WsdNotifications {
   'app.request': { id: string; method: string; params: unknown; sessionId: string | null };
 }
 
+/** `app.request` method of the ChatGPT token helper (`/opt/wsd/agentforge-chatgpt-token <providerId>`). */
+export const APP_CALL_CHATGPT_TOKEN = 'chatgpt.token';
+
 export type TermControl =
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'exit'; exitCode: number | null }

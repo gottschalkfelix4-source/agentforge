@@ -189,8 +189,9 @@ export async function projectRoutes(app: FastifyInstance, ctx: AppContext) {
       const profile = body.profileId ? repo.profile(body.profileId) : null;
       if (body.profileId && !profile) throw new HttpError(400, 'invalid_profile', 'Profil nicht gefunden');
       const provider = profile?.providerId ? repo.get(profile.providerId) : null;
-      const apiKey = provider?.secretId ? ctx.secrets.get(provider.secretId) : null;
-      params = buildAgentLaunch(body.agentId, body.mode, { profile, provider, apiKey });
+      // Login terminals need no credentials (and must work while a ChatGPT login is broken).
+      const creds = body.mode === 'run' && profile?.authMode === 'provider' ? await repo.credentials(provider) : { apiKey: null, chatgpt: null };
+      params = buildAgentLaunch(body.agentId, body.mode, { profile, provider, ...creds });
     }
     // GitHub token for the `gh` CLI (process env only, never container env).
     // Not for Copilot: it prefers GH_TOKEN over its own login, and our token usually lacks Copilot access.

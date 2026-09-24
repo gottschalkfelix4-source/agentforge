@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { TASK_COLUMNS, USER_TASK_COLUMNS, type WsdNotifications } from '@vibe/shared';
+import { APP_CALL_CHATGPT_TOKEN, TASK_COLUMNS, USER_TASK_COLUMNS, type WsdNotifications } from '@vibe/shared';
 import { z, ZodError } from 'zod';
 import type { AppContext } from '../app-context.js';
 import { bus } from '../events.js';
@@ -122,6 +122,7 @@ export async function pmRoutes(app: FastifyInstance, ctx: AppContext) {
   ctx.workspaces.onWsdNotification((projectId, method, params) => {
     if (method !== 'app.request') return;
     const r = params as WsdNotifications['app.request'];
+    if (r.method === APP_CALL_CHATGPT_TOKEN) return; // answered by the provider routes
     // Only sessions of this project may claim a task context.
     const sessionId =
       r.sessionId && ctx.db.get('SELECT id FROM agent_sessions WHERE id = ? AND project_id = ?', r.sessionId, projectId) ? r.sessionId : null;

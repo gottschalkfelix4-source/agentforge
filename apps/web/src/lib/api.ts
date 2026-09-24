@@ -2,6 +2,8 @@ import type {
   AgentManifest,
   AgentProfile,
   AgentProfileInput,
+  ChatGptDevicePoll,
+  ChatGptDeviceStart,
   CreateProjectRequest,
   CreateTerminalRequest,
   FsEntry,
@@ -147,6 +149,8 @@ export const api = {
   updateProvider: (id: string, body: Partial<ProviderInput>) =>
     request<Provider>(`/providers/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
   deleteProvider: (id: string) => request<Ok>(`/providers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  chatgptDeviceStart: () => request<ChatGptDeviceStart>('/providers/chatgpt/device/start', { method: 'POST' }),
+  chatgptDevicePoll: (handle: string) => request<ChatGptDevicePoll>('/providers/chatgpt/device/poll', { method: 'POST', body: { handle } }),
 
   // agent profiles
   profiles: () => request<AgentProfile[]>('/agent-profiles'),

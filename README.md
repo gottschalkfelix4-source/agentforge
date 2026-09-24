@@ -95,6 +95,7 @@ GitHub-Issues synchronisiert werden.
 - Alle Agent-CLIs sind im Workspace-Image vorinstalliert und lassen sich per Klick aktualisieren
 - **Abo-Login** (z. B. Claude Pro/Max, ChatGPT, GitHub Copilot) einmal durchführen – gilt für alle Workspaces
 - **Provider** für API-Keys, OpenRouter, OpenAI-/Anthropic-kompatible Endpunkte und Ollama; **Agent-Profile** kombinieren Agent, Provider und Modell
+- **OpenAI-Abo (ChatGPT Plus/Pro) als Provider**: einmal in den Einstellungen anmelden, dann nutzen Codex, OpenCode und Kilo das Abo – Agentforge erneuert die Anmeldung zentral
 - Schlüssel werden verschlüsselt gespeichert und nur dem jeweiligen Agent-Prozess übergeben
 
 ## Unterstützte Agents
