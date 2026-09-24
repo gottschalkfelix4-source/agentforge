@@ -56,10 +56,11 @@ export function buildStructuredLaunch(agentId: string, ctx: LaunchContext): Stru
   if (!m) throw new Error(`Unbekannter Agent: ${agentId}`);
   if (!m.structured) throw new Error(`${m.label} unterstützt keine Chat-Sitzungen`);
   const { render, structuredModel } = resolve(m, ctx);
+  const [command, ...args] = [...(render.wrap ?? []), m.structured.command, ...m.structured.args, ...render.structuredArgs];
   return {
     transport: m.structured.transport,
-    command: m.structured.command,
-    args: [...m.structured.args, ...render.structuredArgs],
+    command: command!,
+    args,
     env: { ...m.baseEnv, ...render.env, ...(ctx.profile?.env ?? {}) },
     model: structuredModel,
   };
@@ -80,10 +81,11 @@ export function buildAgentLaunch(agentId: string, mode: 'run' | 'login', ctx: La
   const args = [...m.ptyArgs, ...render.args];
   if (model && m.modelFlag) args.push(m.modelFlag, model);
   args.push(...(profile?.extraArgs ?? []));
+  const [command, ...wrapArgs] = [...(render.wrap ?? []), m.bin];
 
   return {
-    command: m.bin,
-    args,
+    command: command!,
+    args: [...wrapArgs, ...args],
     env: { ...m.baseEnv, ...render.env, ...(profile?.env ?? {}) },
     title: profile ? `${m.label} (${profile.name})` : m.label,
   };

@@ -23,6 +23,8 @@ export interface ProviderRender {
   model?: string | null;
   /** Model for the structured launch if it differs (null = the env already selects it; ACP ids differ). */
   structuredModel?: string | null;
+  /** Command prefix the agent is started through (e.g. a shell that writes a config file first). */
+  wrap?: string[];
 }
 
 export type ProviderRenderer = (input: RenderInput) => ProviderRender;

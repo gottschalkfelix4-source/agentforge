@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AGENT_MANIFESTS, type AgentProfile, type ProviderKind } from '@vibe/shared';
 import type { ProviderRecord } from '../../routes/providers.js';
 import { buildAgentLaunch, buildStructuredLaunch } from '../launch.js';
-import { renderProvider } from './renderers.js';
+import { CLINE_SETTINGS_WRAP, renderProvider } from './renderers.js';
 
 const KEY = 'sk-super-secret-123';
 
@@ -179,6 +179,21 @@ describe('gemini / qwen / copilot / cline / aider / goose', () => {
     expect(r.env).toMatchObject({ CLINE_PROVIDER: 'openai-compatible', CLINE_MODEL: 'm1', OPENAI_API_KEY: KEY, OPENAI_BASE_URL: 'http://x/v1' });
     expect(r.args).toEqual(['--provider', 'openai-compatible']);
     expect(r.structuredArgs).toEqual([]);
+  });
+  it('cline → key via CLINE_API_KEY, base URL via a keyless settings file written by the wrapper', () => {
+    const ctx = { profile: profile('cline'), provider: provider('openai_compat', { id: 'prov-1', baseUrl: 'https://yolo.example/v1' }), apiKey: KEY };
+    const s = buildStructuredLaunch('cline', ctx);
+    expect(s.command).toBe('sh');
+    expect(s.args).toEqual([...CLINE_SETTINGS_WRAP.slice(1), 'cline', '--acp']);
+    expect(s.env).toMatchObject({ CLINE_API_KEY: KEY, CLINE_PROVIDER: 'openai-compatible', CLINE_PROVIDER_SETTINGS_PATH: '/tmp/agentforge-cline-prov-1.json' });
+    const settings = JSON.parse(s.env.VIBE_CLINE_SETTINGS!);
+    expect(settings.providers['openai-compatible'].settings).toEqual({ provider: 'openai-compatible', model: 'm1', baseUrl: 'https://yolo.example/v1' });
+    expect(s.env.VIBE_CLINE_SETTINGS).not.toContain(KEY);
+    expect(s.model).toBe('m1');
+    const tui = buildAgentLaunch('cline', 'run', ctx);
+    expect(tui).toMatchObject({ command: 'sh', args: [...CLINE_SETTINGS_WRAP.slice(1), 'cline', '--provider', 'openai-compatible', '--model', 'm1'] });
+    // Ollama needs no key, but CLINE_API_KEY must not be empty.
+    expect(renderProvider('cline', { provider: provider('ollama'), apiKey: '', model: null }).env.CLINE_API_KEY).toBe('ollama');
   });
   it('aider → litellm prefixes', () => {
     expect(render('aider', 'openrouter', {}, 'anthropic/claude-sonnet-4').model).toBe('openrouter/anthropic/claude-sonnet-4');

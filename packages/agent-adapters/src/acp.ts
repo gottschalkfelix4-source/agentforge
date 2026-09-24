@@ -209,13 +209,23 @@ export class AcpSession extends BaseSession {
     this.info = { ...this.info, ...patch };
   }
 
+  /**
+   * The model select among the config options. Some agents have several in the model category
+   * (Cline: `provider` and `model`); the one named "model" wins.
+   */
+  private modelOption() {
+    const models = this.configOptions.filter((o) => o.category === 'model' && o.type === 'select');
+    return models.find((o) => o.id === 'model') ?? models.find((o) => o.id !== 'provider') ?? models[0];
+  }
+
   /** Models/modes from the (1.x) session config options. */
   private infoFromConfig(): Parameters<BaseSession['updateInfo']>[0] {
     const patch: Parameters<BaseSession['updateInfo']>[0] = {};
+    const model = this.modelOption();
     for (const o of this.configOptions) {
       if (o.type !== 'select') continue;
       const opts = flattenSelect(o.options);
-      if (o.category === 'model') {
+      if (o === model) {
         patch.models = opts.map((v) => ({ id: v.value, name: v.name }));
         patch.currentModel = o.currentValue;
       } else if (o.category === 'mode' && !this.info.modes) {
@@ -638,7 +648,7 @@ export class AcpSession extends BaseSession {
 
   async setModel(model: string): Promise<void> {
     if (!this.sessionId) throw new Error('Keine Sitzung');
-    const cfg = this.configOptions.find((o) => o.category === 'model' && o.type === 'select');
+    const cfg = this.modelOption();
     if (cfg) {
       const res = await this.rpc.request<acp.SetSessionConfigOptionResponse>('session/set_config_option', { sessionId: this.sessionId, configId: cfg.id, value: model });
       if (res?.configOptions) this.configOptions = res.configOptions;

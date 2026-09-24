@@ -226,10 +226,32 @@ const CLINE_PROVIDER: Record<string, string> = {
   gemini: 'gemini',
 };
 
+/** Base URL Cline needs in its provider settings (null = the provider's default). */
+function clineBaseUrl(p: Parameters<ProviderRenderer>[0]['provider']): string | null {
+  switch (p.kind) {
+    case 'anthropic_compat':
+      return anthropicRoot(p);
+    case 'openai_compat':
+      return openaiBase(p);
+    case 'ollama':
+      return ollamaRoot(p);
+    case 'anthropic':
+      return p.baseUrl ? anthropicRoot(p) : null;
+    case 'openai':
+      return p.baseUrl ? openaiBase(p) : null;
+    default:
+      return null;
+  }
+}
+
+/** Keyless provider settings file Cline reads from CLINE_PROVIDER_SETTINGS_PATH (written by `wrap`). */
+export const CLINE_SETTINGS_WRAP = ['sh', '-c', 'printf "%s" "$VIBE_CLINE_SETTINGS" > "$CLINE_PROVIDER_SETTINGS_PATH" && exec "$@"', 'sh'];
+
 /**
- * Best effort: Cline reads provider + model from CLINE_PROVIDER / CLINE_MODEL and keys from the providers'
- * standard env vars. Custom base URLs (OpenAI-compatible, Ollama) are only honoured where the SDK reads
- * the env var; otherwise run `cline auth -p <provider> -b <url>` once in the login terminal.
+ * Cline's ACP mode ignores CLI flags and only starts a session without an account login when CLINE_API_KEY
+ * is set — which it then also uses as the provider's key. Provider and model come from CLINE_PROVIDER /
+ * CLINE_MODEL, the base URL from a provider settings file without the key (/tmp, rewritten on every launch,
+ * so the user's ~/.cline stays untouched). The chat picks the model via the ACP `model` option.
  */
 export const renderCline: ProviderRenderer = ({ provider: p, apiKey, model }) => {
   const r = empty();
@@ -237,6 +259,22 @@ export const renderCline: ProviderRenderer = ({ provider: p, apiKey, model }) =>
   if (!id) return r;
   r.env.CLINE_PROVIDER = id;
   if (model) r.env.CLINE_MODEL = model;
+  r.env.CLINE_API_KEY = keyOr(apiKey, p.kind === 'ollama' ? 'ollama' : 'none');
+  const baseUrl = clineBaseUrl(p);
+  r.env.VIBE_CLINE_SETTINGS = JSON.stringify({
+    version: 1,
+    lastUsedProvider: id,
+    modes: {},
+    providers: {
+      [id]: {
+        settings: { provider: id, ...(model ? { model } : {}), ...(baseUrl ? { baseUrl } : {}) },
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        tokenSource: 'manual',
+      },
+    },
+  });
+  r.env.CLINE_PROVIDER_SETTINGS_PATH = `/tmp/agentforge-cline-${p.id.replace(/[^A-Za-z0-9_-]/g, '')}.json`;
+  r.wrap = [...CLINE_SETTINGS_WRAP];
   switch (p.kind) {
     case 'anthropic':
       r.env.ANTHROPIC_API_KEY = apiKey;
