@@ -3,9 +3,11 @@ import {
   AGENTFORGE_SECTION_END,
   AGENTFORGE_SECTION_START,
   agentforgeSection,
+  agentInstructionUpdates,
   agentsMdTemplate,
   claudeMdTemplate,
   upsertAgentforgeSection,
+  withAgentsMdImport,
 } from '@vibe/shared';
 
 describe('AGENTS.md templates', () => {
@@ -18,6 +20,9 @@ describe('AGENTS.md templates', () => {
     expect(t).toContain('Status pflegst ausschließlich du');
     expect(t).toContain('Nur du öffnest und schließt sie');
     expect(claudeMdTemplate('Shop')).toMatch(/^@AGENTS\.md$/m);
+    // Rules that keep (small) models working until the task is done.
+    expect(t).toContain('Arbeite, bis die Aufgabe fertig ist');
+    expect(t).toContain('Handeln statt ankündigen');
   });
 
   it('appends the section to existing files without touching own content', () => {
@@ -36,5 +41,23 @@ describe('AGENTS.md templates', () => {
     expect(out.split(AGENTFORGE_SECTION_START)).toHaveLength(2);
     expect(upsertAgentforgeSection(out)).toBe(out);
     expect(out).toContain(agentforgeSection());
+  });
+
+  it('imports AGENTS.md into an existing CLAUDE.md once', () => {
+    const out = withAgentsMdImport('# X\n\nEigenes.\n');
+    expect(out).toBe('# X\n\n@AGENTS.md\n\nEigenes.\n');
+    expect(withAgentsMdImport(out)).toBe(out);
+  });
+
+  it('plans the workspace files: create missing, refresh outdated, skip current', () => {
+    expect(agentInstructionUpdates({ agentsMd: null, claudeMd: null }, 'Shop')).toEqual([
+      { path: 'AGENTS.md', content: agentsMdTemplate('Shop') },
+      { path: 'CLAUDE.md', content: claudeMdTemplate('Shop') },
+    ]);
+    const old = `# Shop\n\n${AGENTFORGE_SECTION_START}\nALT\n${AGENTFORGE_SECTION_END}\n`;
+    const updates = agentInstructionUpdates({ agentsMd: old, claudeMd: claudeMdTemplate('Shop') }, 'Shop');
+    expect(updates.map((u) => u.path)).toEqual(['AGENTS.md']);
+    expect(updates[0]!.content).toContain(agentforgeSection());
+    expect(agentInstructionUpdates({ agentsMd: updates[0]!.content, claudeMd: claudeMdTemplate('Shop') }, 'Shop')).toEqual([]);
   });
 });

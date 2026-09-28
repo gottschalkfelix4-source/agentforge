@@ -87,7 +87,7 @@ GitHub-Issues synchronisiert werden.
 
 - **Roadmap** mit Meilensteinen, Fälligkeiten und Fortschritt
 - **Notizen** in Markdown für Entscheidungen, Architektur und Wissen – Agents lesen und schreiben sie ebenfalls
-- **AGENTS.md / CLAUDE.md** direkt bearbeiten, inklusive einer Vorlage, die den Agents alles über ihre Umgebung erklärt
+- **AGENTS.md / CLAUDE.md** werden beim Agent-Start automatisch angelegt bzw. aktualisiert (Vorlage erklärt den Agents ihre Umgebung und hält auch kleinere Modelle zum Durcharbeiten an) und lassen sich direkt bearbeiten
 
 ### Agents und Provider
 

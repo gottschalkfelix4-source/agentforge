@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Project, ProjectWithWorkspace, WorkspaceAction } from '@vibe/shared';
 import { ulid } from 'ulid';
 import { z } from 'zod';
+import { ensureAgentInstructions } from '../agents/instructions.js';
 import { buildAgentLaunch, resolveLaunchContextWindow } from '../agents/launch.js';
 import type { AppContext } from '../app-context.js';
 import { nowIso } from '../db/index.js';
@@ -193,6 +194,7 @@ export async function projectRoutes(app: FastifyInstance, ctx: AppContext) {
       const creds = body.mode === 'run' && profile?.authMode === 'provider' ? await repo.credentials(provider) : { apiKey: null, chatgpt: null };
       const contextWindow = body.mode === 'run' ? await resolveLaunchContextWindow({ profile, provider, apiKey: creds.apiKey }) : null;
       params = buildAgentLaunch(body.agentId, body.mode, { profile, provider, ...creds, contextWindow });
+      if (body.mode === 'run') await ensureAgentInstructions(ctx.db, req.params.id, client, (m) => req.log.warn(m));
     }
     // GitHub token for the `gh` CLI (process env only, never container env).
     // Not for Copilot: it prefers GH_TOKEN over its own login, and our token usually lacks Copilot access.

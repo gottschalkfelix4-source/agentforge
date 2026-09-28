@@ -38,6 +38,28 @@ describe('ensureAgentDefaults (Claude settings)', () => {
   });
 });
 
+describe('ensureAgentDefaults (Gemini/Qwen context files)', () => {
+  const orch = new Orchestrator({ ...config, dataDir: dir });
+
+  it('makes Gemini and Qwen read AGENTS.md next to their own file', () => {
+    orch.ensureAgentDefaults();
+    expect(JSON.parse(readFileSync(path.join(dir, 'agent-home', 'gemini', 'settings.json'), 'utf8'))).toEqual({
+      context: { fileName: ['AGENTS.md', 'GEMINI.md'] },
+    });
+    expect(JSON.parse(readFileSync(path.join(dir, 'agent-home', 'qwen', 'settings.json'), 'utf8'))).toEqual({
+      context: { fileName: ['AGENTS.md', 'QWEN.md'] },
+    });
+  });
+
+  it('keeps a user-configured context file name', () => {
+    const file = path.join(dir, 'agent-home', 'gemini', 'settings.json');
+    writeFileSync(file, JSON.stringify({ context: { fileName: 'MY.md' }, theme: 'x' }));
+    const before = readFileSync(file, 'utf8');
+    orch.ensureAgentDefaults();
+    expect(readFileSync(file, 'utf8')).toBe(before);
+  });
+});
+
 describe('createContainer', () => {
   const spec = { workspaceId: 'w1', projectId: 'P1', image: 'img', cpuLimit: null, memLimitMb: null, gitUrl: null, projectName: null };
 

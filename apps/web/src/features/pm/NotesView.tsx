@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Bot, FileText, Pin, PinOff, Plus, Search, Sparkles, StickyNote, Trash2 } from 'lucide-react';
-import { AGENTFORGE_SECTION_START, agentsMdTemplate, claudeMdTemplate, upsertAgentforgeSection, type Note } from '@vibe/shared';
+import { AGENTFORGE_SECTION_START, agentsMdTemplate, claudeMdTemplate, upsertAgentforgeSection, withAgentsMdImport, type Note } from '@vibe/shared';
 import { api } from '@/lib/api';
 import { qk, useDir, useProject } from '@/lib/queries';
 import { cn, errorMessage } from '@/lib/utils';
@@ -126,11 +126,8 @@ function upgraded(name: SpecialFile, content: string): string | null {
     const next = upsertAgentforgeSection(content);
     return next === content ? null : next;
   }
-  if (/^@AGENTS\.md\s*$/m.test(content)) return null;
-  const lines = content.split('\n');
-  const at = lines[0]?.startsWith('# ') ? 1 : 0;
-  lines.splice(at, 0, ...(at ? ['', '@AGENTS.md'] : ['@AGENTS.md', '']));
-  return lines.join('\n');
+  const next = withAgentsMdImport(content);
+  return next === content ? null : next;
 }
 
 function WorkspaceFileEditor({ projectId, name, exists }: { projectId: string; name: SpecialFile; exists: boolean }) {
@@ -211,7 +208,7 @@ function WorkspaceFileEditor({ projectId, name, exists }: { projectId: string; n
         {header}
         <div className="grid max-w-lg gap-3 rounded-xl border border-dashed border-border p-5 text-sm">
           <p>
-            <span className="font-mono">{name}</span> existiert noch nicht.{' '}
+            <span className="font-mono">{name}</span> existiert noch nicht – Agentforge legt die Datei beim nächsten Agent-Start automatisch an.{' '}
             {name === 'CLAUDE.md'
               ? 'Claude Code liest diese Datei automatisch. Die Vorlage bindet AGENTS.md ein, damit alle Agents dieselben Regeln haben.'
               : 'Codex, OpenCode, Gemini CLI und andere Agents lesen AGENTS.md automatisch. Die Vorlage beschreibt alle Agentforge-Funktionen (Workspace, Vorschau, Browser, Board-Tools, Git, Rückfragen) – ergänze nur noch die Projektdetails.'}

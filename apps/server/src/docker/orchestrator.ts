@@ -132,12 +132,42 @@ export class Orchestrator {
   }
 
   /**
-   * Defaults in the shared agent config dirs. Claude Code: request API-side thinking summaries — recent
-   * models otherwise stream empty ("omitted") thinking blocks, so neither the chat nor the TUI could show
-   * the thought process — and allow the Agentforge board tools. Existing user settings are merged, never overwritten.
+   * Defaults in the shared agent config dirs. Existing user settings are merged, never overwritten.
+   * - Claude Code: request API-side thinking summaries — recent models otherwise stream empty ("omitted")
+   *   thinking blocks, so neither the chat nor the TUI could show the thought process — and allow the
+   *   Agentforge board tools.
+   * - Gemini CLI / Qwen Code: also read the project's AGENTS.md (by default only GEMINI.md / QWEN.md).
    */
   ensureAgentDefaults() {
-    const dir = this.localPath('agent-home', 'claude');
+    this.mergeAgentSettings('claude', (settings) => {
+      let changed = false;
+      if (settings.showThinkingSummaries === undefined) {
+        settings.showThinkingSummaries = true;
+        changed = true;
+      }
+      // The Agentforge board tools only touch the project board: allow them up front, so they neither need an
+      // approval nor Claude's auto-mode classifier (which fails behind some API gateways).
+      const permissions = (settings.permissions ?? {}) as { allow?: unknown };
+      const allow = Array.isArray(permissions.allow) ? (permissions.allow as unknown[]) : [];
+      if (!allow.includes(AGENTFORGE_ALLOW_RULE)) {
+        settings.permissions = { ...permissions, allow: [...allow, AGENTFORGE_ALLOW_RULE] };
+        changed = true;
+      }
+      return changed;
+    });
+    for (const [home, own] of [['gemini', 'GEMINI.md'], ['qwen', 'QWEN.md']] as const) {
+      this.mergeAgentSettings(home, (settings) => {
+        const context = (settings.context ?? {}) as { fileName?: unknown };
+        if (context.fileName !== undefined) return false; // the user's choice
+        settings.context = { ...context, fileName: ['AGENTS.md', own] };
+        return true;
+      });
+    }
+  }
+
+  /** Read-modify-write of `agent-home/<home>/settings.json`; `apply` returns whether it changed anything. */
+  private mergeAgentSettings(home: string, apply: (settings: Record<string, unknown>) => boolean) {
+    const dir = this.localPath('agent-home', home);
     const file = path.join(dir, 'settings.json');
     let settings: Record<string, unknown> = {};
     try {
@@ -145,28 +175,15 @@ export class Orchestrator {
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return; // unreadable/invalid: leave it alone
     }
-    let changed = false;
-    if (settings.showThinkingSummaries === undefined) {
-      settings.showThinkingSummaries = true;
-      changed = true;
-    }
-    // The Agentforge board tools only touch the project board: allow them up front, so they neither need an
-    // approval nor Claude's auto-mode classifier (which fails behind some API gateways).
-    const permissions = (settings.permissions ?? {}) as { allow?: unknown };
-    const allow = Array.isArray(permissions.allow) ? (permissions.allow as unknown[]) : [];
-    if (!allow.includes(AGENTFORGE_ALLOW_RULE)) {
-      settings.permissions = { ...permissions, allow: [...allow, AGENTFORGE_ALLOW_RULE] };
-      changed = true;
-    }
-    if (!changed) return;
+    if (!apply(settings)) return;
     mkdirSync(dir, { recursive: true });
     writeFileSync(file, JSON.stringify(settings, null, 2) + '\n', { mode: 0o644 });
-    // The app runs as root in its container; hand the file to the workspace user so Claude can update it.
+    // The app runs as root in its container; hand the file to the workspace user so the agent can update it.
     if (process.platform !== 'win32') {
       try {
         chownSync(file, Number(this.cfg.puid ?? 1000), Number(this.cfg.pgid ?? 1000));
       } catch {
-        /* not permitted — Claude can still read it */
+        /* not permitted — the agent can still read it */
       }
     }
   }

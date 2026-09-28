@@ -14,6 +14,7 @@ import type {
 } from '@vibe/shared';
 import { AGENTFORGE_MCP_NAME, getAgentManifest } from '@vibe/shared';
 import { ulid } from 'ulid';
+import { ensureAgentInstructions } from '../agents/instructions.js';
 import { buildStructuredLaunch, resolveLaunchContextWindow } from '../agents/launch.js';
 import type { AppContext } from '../app-context.js';
 import { githubService } from '../github/service.js';
@@ -454,6 +455,7 @@ export class SessionService {
     this.syncProviderModels(id);
     const created = this.store.require(id);
     bus.project(projectId, { type: 'session.updated', projectId, session: toSession(created) });
+    await ensureAgentInstructions(this.ctx.db, projectId, client, (m) => this.log.warn(m));
     const row = await this.startAgent(client, params);
     if (body.initialPrompt?.trim() && row.status !== 'error') {
       await client.call('agent.prompt', { sessionId: id, text: body.initialPrompt }).catch((err: Error) => this.log.warn(`initialPrompt ${id}: ${err.message}`));
@@ -471,6 +473,7 @@ export class SessionService {
     const params = await this.launchParams(row, true);
     const client = await this.clientFor(row);
     this.store.patch(id, { status: 'starting', status_message: null });
+    await ensureAgentInstructions(this.ctx.db, row.project_id, client, (m) => this.log.warn(m));
     await this.startAgent(client, params);
     return toSession(this.store.require(id));
   }
