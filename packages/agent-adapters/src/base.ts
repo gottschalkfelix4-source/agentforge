@@ -5,6 +5,7 @@ import { JsonRpcProcess } from './jsonrpc.js';
 import type { AgentEventListener, AgentExitListener, AgentSessionHandle, AgentStartOptions } from './types.js';
 
 type SessionInfo = Extract<AgentEvent, { type: 'session.info' }>;
+type Usage = Extract<AgentEvent, { type: 'usage' }>;
 
 export const newId = () => randomUUID();
 
@@ -141,6 +142,21 @@ export abstract class BaseSession implements AgentSessionHandle {
     if (key === this.lastInfo) return;
     this.lastInfo = key;
     this.emit(ev);
+  }
+
+  /**
+   * Usage event for the tokens currently in the context. The window Agentforge resolved from the provider
+   * (`opts.contextWindow`) wins over the agent's own value, which is often a default guess for models the
+   * agent does not know (local models, gateways).
+   */
+  protected contextUsage(used: number, agentWindow?: number | null): Usage {
+    const window = this.opts.contextWindow || agentWindow || 0;
+    const ev: Usage = { type: 'usage', contextUsed: Math.max(0, Math.round(used)) };
+    if (window > 0) {
+      ev.contextWindow = window;
+      ev.contextPercent = Math.round((ev.contextUsed! / window) * 1000) / 10;
+    }
+    return ev;
   }
 
   /** Path relative to the session cwd when inside it, else unchanged. */

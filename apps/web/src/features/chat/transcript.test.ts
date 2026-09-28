@@ -105,6 +105,7 @@ describe('transcript reducer', () => {
         { type: 'plan', entries: [{ text: 'A', status: 'completed' }, { text: 'B', status: 'pending' }] },
         { type: 'usage', inputTokens: 10 },
         { type: 'usage', outputTokens: 5, contextPercent: 12 },
+        { type: 'usage', contextUsed: 15_840, contextWindow: 132_096, contextPercent: 12 },
         { type: 'diff.turn', files: [{ path: 'x', oldText: null, newText: 'y' }] },
         { type: 'turn.done', stopReason: 'end_turn' },
         { type: 'user.message', id: 'u2', text: 'b' },
@@ -114,11 +115,11 @@ describe('transcript reducer', () => {
     expect(s.turns).toHaveLength(2);
     const t = s.turns[0]!;
     expect(t.plan?.map((e) => e.status)).toEqual(['completed', 'pending']);
-    expect(t.usage).toEqual({ inputTokens: 10, outputTokens: 5, contextPercent: 12 });
+    expect(t.usage).toEqual({ inputTokens: 10, outputTokens: 5, contextPercent: 12, contextUsed: 15_840, contextWindow: 132_096 });
     expect(t.diff).toHaveLength(1);
     expect(t.done).toBe(true);
     expect(s.turns[1]!.plan).toBeNull();
-    expect(s.usage?.contextPercent).toBe(12);
+    expect(s.usage).toMatchObject({ contextPercent: 12, contextUsed: 15_840, contextWindow: 132_096 });
   });
 
   it('dedupes by seq and buffers gaps until filled', () => {

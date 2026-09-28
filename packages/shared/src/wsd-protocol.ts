@@ -74,6 +74,8 @@ export interface AgentStartParams {
   resumeExternalId?: string | null;
   /** Last event seq already persisted by the app; wsd continues numbering after it (additive, Phase 2). */
   startSeq?: number | null;
+  /** Context window of the model in tokens as resolved from the provider (overrides the agent's own value). */
+  contextWindow?: number | null;
 }
 
 export interface AgentSessionState {

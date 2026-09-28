@@ -292,6 +292,8 @@ export class AgentHost {
         resumeExternalId: p.resumeExternalId ?? null,
         clientName: 'agentforge',
         clientVersion: VERSION,
+        agentId: p.agentId,
+        contextWindow: typeof p.contextWindow === 'number' && p.contextWindow > 0 ? p.contextWindow : null,
         ...(ids ? { uid: ids.uid, gid: ids.gid } : {}),
       });
     } catch (err) {

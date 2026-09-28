@@ -63,6 +63,7 @@ ARG QWEN_CODE_VERSION=latest
 ARG COPILOT_CLI_VERSION=latest
 ARG AIDER_VERSION=
 ARG GOOSE_VERSION=latest
+ARG KIMI_CODE_VERSION=latest
 
 LABEL org.opencontainers.image.title="agentforge-workspace" \
       org.opencontainers.image.description="Agentforge workspace: dev toolchain, agent CLIs and the workspace daemon (wsd)" \
@@ -145,6 +146,7 @@ RUN sed -i 's/\r$//' /usr/local/bin/install-agents.sh && chmod 755 /usr/local/bi
       "@google/gemini-cli@${GEMINI_CLI_VERSION}" \
       "@qwen-code/qwen-code@${QWEN_CODE_VERSION}" \
       "@github/copilot@${COPILOT_CLI_VERSION}" \
+      "@moonshot-ai/kimi-code@${KIMI_CODE_VERSION}" \
       "sh:UV_TOOL_DIR=/usr/local/share/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin uv tool install --python /usr/bin/python3 aider-chat${AIDER_VERSION:+==${AIDER_VERSION}} && chmod -R a+rX /usr/local/share/uv-tools && rm -rf /root/.cache/uv" \
       "sh:G=${GOOSE_VERSION}; U=https://github.com/block/goose/releases/latest/download; [ \"\$G\" = latest ] || U=https://github.com/block/goose/releases/download/v\${G#v}; T=\$(mktemp -d); curl -fsSL \"\$U/goose-\$(uname -m)-unknown-linux-gnu.tar.bz2\" | tar -xj -C \"\$T\" && install -m 755 \"\$(find \"\$T\" -type f -name goose | head -n1)\" /usr/local/bin/goose; rc=\$?; rm -rf \"\$T\"; exit \$rc"
 

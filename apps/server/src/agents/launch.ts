@@ -2,6 +2,7 @@ import { getAgentManifest, type AgentManifest, type AgentProfile, type Structure
 import type { ProviderRecord } from '../routes/providers.js';
 import { HttpError } from '../workspaces/manager.js';
 import { empty, type ProviderRender } from './providers/common.js';
+import { resolveContextWindow } from './providers/context-window.js';
 import { renderProvider } from './providers/renderers.js';
 
 export interface LaunchContext {
@@ -13,6 +14,21 @@ export interface LaunchContext {
   chatgpt?: { accessToken: string; accountId: string; expiresAt: number } | null;
   /** Provider model chosen for this launch (chat model picker); overrides profile/provider defaults. */
   modelOverride?: string | null;
+  /** Context window of that model as reported by the provider (resolveContextWindow). */
+  contextWindow?: number | null;
+}
+
+/** Provider model a launch uses (null in subscription mode). */
+export function launchModel(ctx: Pick<LaunchContext, 'profile' | 'provider' | 'modelOverride'>): string | null {
+  if (ctx.profile?.authMode !== 'provider' || !ctx.provider) return null;
+  return ctx.modelOverride || ctx.profile.model || ctx.provider.defaultModel || null;
+}
+
+/** Provider-reported context window of the launch's model (null in subscription mode or when the provider does not tell). */
+export async function resolveLaunchContextWindow(ctx: Pick<LaunchContext, 'profile' | 'provider' | 'modelOverride' | 'apiKey'>): Promise<number | null> {
+  const model = launchModel(ctx);
+  if (!model || !ctx.provider) return null;
+  return resolveContextWindow({ kind: ctx.provider.kind, baseUrl: ctx.provider.baseUrl, apiKey: ctx.apiKey ?? '', model });
 }
 
 interface Resolved {
@@ -32,9 +48,9 @@ function resolve(m: AgentManifest, ctx: LaunchContext): Resolved {
   if (!m.providerKinds.includes(p.kind)) {
     throw new HttpError(400, 'invalid_profile', `${m.label} unterstützt Provider vom Typ „${p.kind}“ nicht`);
   }
-  const model = ctx.modelOverride || profile.model || p.defaultModel || null;
+  const model = launchModel(ctx);
   const chatgpt = ctx.chatgpt ? { accessToken: ctx.chatgpt.accessToken, accountId: ctx.chatgpt.accountId, expiresAt: ctx.chatgpt.expiresAt } : null;
-  const render = renderProvider(m.id, { provider: p, apiKey: ctx.apiKey ?? '', model, chatgpt });
+  const render = renderProvider(m.id, { provider: p, apiKey: ctx.apiKey ?? '', model, chatgpt, contextWindow: ctx.contextWindow ?? null });
   const effective = render.model !== undefined ? render.model : model;
   return { render, model: effective, structuredModel: render.structuredModel !== undefined ? render.structuredModel : effective };
 }
@@ -45,6 +61,8 @@ export interface StructuredLaunch {
   args: string[];
   env: Record<string, string>;
   model: string | null;
+  /** Provider-reported context window (provider mode only). */
+  contextWindow: number | null;
 }
 
 /**
@@ -63,6 +81,7 @@ export function buildStructuredLaunch(agentId: string, ctx: LaunchContext): Stru
     args,
     env: { ...m.baseEnv, ...render.env, ...(ctx.profile?.env ?? {}) },
     model: structuredModel,
+    contextWindow: ctx.profile?.authMode === 'provider' && ctx.provider ? (ctx.contextWindow ?? null) : null,
   };
 }
 

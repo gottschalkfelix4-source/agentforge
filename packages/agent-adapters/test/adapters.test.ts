@@ -94,8 +94,101 @@ describe('AcpAdapter', () => {
     // fs/write_text_file + fs/read_text_file with line/limit
     expect(fs.readFileSync(path.join(cwd, 'fake-out.txt'), 'utf8')).toBe('line1\nline2\nline3');
     expect(events.filter((e) => e.type === 'message.done' && e.role === 'assistant').map((e) => (e as { text: string }).text)).toContain('Gelesen: line2');
-    expect(events).toContainEqual({ type: 'usage', contextPercent: 50, costUsd: 0.01 });
+    expect(events).toContainEqual({ type: 'usage', contextUsed: 500, contextWindow: 1000, contextPercent: 50, costUsd: 0.01 });
     expect(events).toContainEqual({ type: 'usage', inputTokens: 10, outputTokens: 20 });
+  });
+
+  describe('context usage', () => {
+    it('the window resolved by Agentforge wins over the agent\'s own', async () => {
+      const { h, events, waitFor } = start('acp', { contextWindow: 2000 });
+      await h.ready;
+      await h.prompt('x');
+      const req = await waitFor('approval.request');
+      h.respondApproval(req.id, 'allow');
+      await waitFor('turn.done');
+      expect(events).toContainEqual({ type: 'usage', contextUsed: 500, contextWindow: 2000, contextPercent: 25, costUsd: 0.01 });
+    });
+
+    it('per-request _meta.usage on chunks (Qwen) and _meta.quota turn totals (Gemini)', async () => {
+      const { h, events, waitFor } = start('acp', { contextWindow: 3000 });
+      await h.ready;
+      await h.prompt('metausage');
+      await waitFor('turn.done');
+      const usage = events.filter((e) => e.type === 'usage');
+      // The repeated chunk usage is emitted once.
+      expect(usage.filter((e) => 'contextUsed' in e)).toEqual([{ type: 'usage', contextUsed: 750, contextWindow: 3000, contextPercent: 25 }]);
+      expect(usage).toContainEqual({ type: 'usage', inputTokens: 1400, outputTokens: 100 });
+    });
+
+    it('without a window only the used tokens are reported', async () => {
+      const { h, events, waitFor } = start('acp');
+      await h.ready;
+      await h.prompt('metausage');
+      await waitFor('turn.done');
+      expect(events).toContainEqual({ type: 'usage', contextUsed: 750 });
+    });
+
+    function homeWith(files: Record<string, string>): string {
+      const home = fs.mkdtempSync(path.join(cwd, 'home-'));
+      for (const [rel, content] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(home, rel)), { recursive: true });
+        fs.writeFileSync(path.join(home, rel), content);
+      }
+      return home;
+    }
+
+    it('Cline: context from its session messages file after the turn', async () => {
+      const home = homeWith({});
+      const { h, events, waitFor } = start('acp', { agentId: 'cline', contextWindow: 10_000, env: { ...env(), HOME: home } });
+      await h.ready;
+      const id = h.externalId!;
+      const messages = [
+        { role: 'user', content: [] },
+        { role: 'assistant', metrics: { inputTokens: 400, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+        { role: 'user', content: [] },
+        { role: 'assistant', metrics: { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 200, cacheWriteTokens: 0 } },
+      ];
+      fs.mkdirSync(path.join(home, '.cline/data/sessions', id), { recursive: true });
+      fs.writeFileSync(path.join(home, '.cline/data/sessions', id, `${id}.messages.json`), JSON.stringify({ version: 1, messages }));
+      await h.prompt('notice');
+      const ev = await waitFor('usage', (e) => e.contextUsed !== undefined, 5000);
+      expect(ev).toEqual({ type: 'usage', contextUsed: 1250, contextWindow: 10_000, contextPercent: 12.5 });
+      expect(events.filter((e) => e.type === 'usage')).toHaveLength(1);
+    });
+
+    it('Gemini CLI: context from the latest gemini record of its chat log', async () => {
+      const home = homeWith({});
+      const { h, waitFor } = start('acp', { agentId: 'gemini', env: { ...env(), HOME: home } });
+      await h.ready;
+      const id = h.externalId!;
+      const lines = [
+        { sessionId: id, projectHash: 'x', startTime: 't', kind: 'main' },
+        { id: 'm1', type: 'user', content: 'hi' },
+        { id: 'm2', type: 'gemini', content: '', tokens: { input: 500, output: 20, cached: 0, thoughts: 5, tool: 0, total: 525 } },
+        { id: 'm3', type: 'gemini', content: 'done', tokens: { input: 900, output: 30, cached: 100, thoughts: 0, tool: 0, total: 930 } },
+        { id: 'm4', type: 'user', content: 'next' },
+      ];
+      const dir = path.join(home, '.gemini/tmp/proj/chats');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `session-2026-09-28T10-00-${id.slice(0, 8)}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+      await h.prompt('notice');
+      expect(await waitFor('usage', (e) => e.contextUsed !== undefined, 5000)).toEqual({ type: 'usage', contextUsed: 930 });
+    });
+
+    it('agents with their own usage_update skip the session-file fallback', async () => {
+      const home = homeWith({});
+      const { h, events, waitFor } = start('acp', { agentId: 'cline', env: { ...env(), HOME: home } });
+      await h.ready;
+      const id = h.externalId!;
+      fs.mkdirSync(path.join(home, '.cline/data/sessions', id), { recursive: true });
+      fs.writeFileSync(path.join(home, '.cline/data/sessions', id, `${id}.messages.json`), JSON.stringify({ messages: [{ role: 'assistant', metrics: { inputTokens: 1 } }] }));
+      await h.prompt('x');
+      const req = await waitFor('approval.request');
+      h.respondApproval(req.id, 'allow');
+      await waitFor('turn.done');
+      await new Promise((r) => setTimeout(r, 600));
+      expect(events.filter((e) => e.type === 'usage' && e.contextUsed !== undefined).map((e) => (e as { contextUsed: number }).contextUsed)).toEqual([500]);
+    });
   });
 
   it('rejecting an approval fails the tool', async () => {
@@ -271,7 +364,7 @@ describe('CodexAppServerAdapter', () => {
     const diff = events.find((e) => e.type === 'diff.turn') as Extract<AgentEvent, { type: 'diff.turn' }>;
     expect(diff.files.map((f) => f.path)).toEqual(['src/a.ts', 'new.txt']);
     expect(events).toContainEqual(expect.objectContaining({ type: 'message.done', id: 'msg_1', role: 'assistant', text: 'Fertig!' }));
-    expect(events).toContainEqual({ type: 'usage', inputTokens: 200, outputTokens: 100, contextPercent: 30 });
+    expect(events).toContainEqual({ type: 'usage', inputTokens: 200, outputTokens: 100, contextUsed: 300, contextWindow: 1000, contextPercent: 30 });
     expect(stderr.find((l) => l.startsWith('turn/start'))).toContain('"approvalPolicy":"untrusted"');
   });
 

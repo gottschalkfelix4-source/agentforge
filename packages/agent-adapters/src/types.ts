@@ -20,6 +20,10 @@ export interface AgentStartOptions {
   clientVersion?: string;
   /** Timeout for the handshake (initialize + session creation). */
   startTimeoutMs?: number;
+  /** Agent id from the manifest (selects agent-specific usage sources). */
+  agentId?: string;
+  /** Context window of the model in tokens as resolved by Agentforge; overrides the agent's own value. */
+  contextWindow?: number | null;
   /** Debug hook for the agent's stderr. */
   onStderr?: (line: string) => void;
 }

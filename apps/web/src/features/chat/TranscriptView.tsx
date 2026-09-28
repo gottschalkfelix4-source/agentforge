@@ -517,12 +517,23 @@ function TurnDiffSummary({ files }: { files: FileDiff[] }) {
   );
 }
 
-export function UsageLine({ usage, className }: { usage: Usage; className?: string }) {
+/** "Kontext 16k / 132k (12 %)"; without a known window only the tokens. */
+export function contextLabel(usage: Usage): string | null {
+  if (usage.contextUsed !== undefined) {
+    const used = formatTokens(usage.contextUsed);
+    if (usage.contextWindow) return `Kontext ${used} / ${formatTokens(usage.contextWindow)} (${Math.round(usage.contextPercent ?? 0)} %)`;
+    return `Kontext ${used}`;
+  }
+  return usage.contextPercent !== undefined ? `Kontext ${Math.round(usage.contextPercent)} %` : null;
+}
+
+export function UsageLine({ usage, className, withContext = true }: { usage: Usage; className?: string; withContext?: boolean }) {
   const parts: string[] = [];
   if (usage.inputTokens !== undefined) parts.push(`${formatTokens(usage.inputTokens)} ein`);
   if (usage.outputTokens !== undefined) parts.push(`${formatTokens(usage.outputTokens)} aus`);
-  if (usage.costUsd !== undefined) parts.push(`$${usage.costUsd.toFixed(usage.costUsd < 1 ? 3 : 2)}`);
-  if (usage.contextPercent !== undefined) parts.push(`Kontext ${Math.round(usage.contextPercent)} %`);
+  if (usage.costUsd !== undefined) parts.push(`${usage.costUsd.toFixed(usage.costUsd < 1 ? 3 : 2)}`);
+  const ctx = withContext ? contextLabel(usage) : null;
+  if (ctx) parts.push(ctx);
   if (!parts.length) return null;
   return <div className={cn('font-mono text-[10.5px] text-muted-foreground/70 tabular-nums', className)}>{parts.join(' · ')}</div>;
 }

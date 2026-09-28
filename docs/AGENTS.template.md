@@ -1,6 +1,6 @@
 # Mein Projekt
 
-Anweisungen für Coding-Agents (Claude Code, Codex, OpenCode, Cline, Kilo, Gemini, Qwen, Copilot, Goose, Aider …),
+Anweisungen für Coding-Agents (Claude Code, Codex, OpenCode, Cline, Kilo, Gemini, Qwen, Copilot, Goose, Kimi Code, Aider …),
 die in diesem Repository arbeiten.
 
 ## Projektüberblick

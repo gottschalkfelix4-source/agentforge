@@ -115,6 +115,9 @@ export interface Usage {
   outputTokens?: number;
   costUsd?: number;
   contextPercent?: number;
+  /** Tokens currently in the context / the model's window. */
+  contextUsed?: number;
+  contextWindow?: number;
 }
 
 export interface Turn {
@@ -454,6 +457,8 @@ function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
       if (ev.outputTokens !== undefined) u.outputTokens = ev.outputTokens;
       if (ev.costUsd !== undefined) u.costUsd = ev.costUsd;
       if (ev.contextPercent !== undefined) u.contextPercent = ev.contextPercent;
+      if (ev.contextUsed !== undefined) u.contextUsed = ev.contextUsed;
+      if (ev.contextWindow !== undefined) u.contextWindow = ev.contextWindow;
       d.s.usage = { ...d.s.usage, ...u };
       if (d.s.turns.length > 0) {
         const t = d.turn(d.s.turns.length - 1);

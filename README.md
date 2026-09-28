@@ -7,7 +7,7 @@
 
 <p align="center">
   <b>Die selbst gehostete Schmiede für Coding-Agents.</b><br>
-  Claude Code, Codex, OpenCode, Cline, Kilo, Gemini, Qwen, Copilot, Goose und Aider in einer Web-Oberfläche –<br>
+  Claude Code, Codex, OpenCode, Cline, Kilo, Gemini, Qwen, Copilot, Goose, Kimi Code und Aider in einer Web-Oberfläche –<br>
   jedes Projekt in einem eigenen, isolierten Workspace-Container.
 </p>
 
@@ -112,6 +112,7 @@ GitHub-Issues synchronisiert werden.
 | Qwen Code | ✓ | ✓ |
 | GitHub Copilot CLI | ✓ | ✓ |
 | Goose | ✓ | ✓ |
+| Kimi Code | ✓ | ✓ |
 | Aider | – | ✓ |
 
 Ein weiterer Agent ist ein Eintrag in [`packages/shared/src/agents.ts`](packages/shared/src/agents.ts).

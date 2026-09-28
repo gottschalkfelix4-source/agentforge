@@ -14,7 +14,7 @@ import type {
 } from '@vibe/shared';
 import { AGENTFORGE_MCP_NAME, getAgentManifest } from '@vibe/shared';
 import { ulid } from 'ulid';
-import { buildStructuredLaunch } from '../agents/launch.js';
+import { buildStructuredLaunch, resolveLaunchContextWindow } from '../agents/launch.js';
 import type { AppContext } from '../app-context.js';
 import { githubService } from '../github/service.js';
 import { nowIso, type Db } from '../db/index.js';
@@ -329,9 +329,11 @@ export class SessionService {
     }
     const provider = profile?.providerId ? repo.get(profile.providerId) : null;
     const creds = profile?.authMode === 'provider' ? await repo.credentials(provider) : { apiKey: null, chatgpt: null };
+    const modelOverride = row.provider_model ?? null;
+    const contextWindow = profile?.authMode === 'provider' ? await resolveLaunchContextWindow({ profile, provider, apiKey: creds.apiKey, modelOverride }) : null;
     let launch;
     try {
-      launch = buildStructuredLaunch(row.agent_id, { profile, provider, ...creds, modelOverride: row.provider_model ?? null });
+      launch = buildStructuredLaunch(row.agent_id, { profile, provider, ...creds, modelOverride, contextWindow });
     } catch (err) {
       throw new HttpError(400, 'invalid_agent', (err as Error).message);
     }
@@ -349,6 +351,7 @@ export class SessionService {
       mcpServers: [agentforgeMcp(row.id), PLAYWRIGHT_MCP],
       resumeExternalId: resume ? row.external_id : null,
       startSeq: row.last_seq,
+      contextWindow: launch.contextWindow,
     };
   }
 

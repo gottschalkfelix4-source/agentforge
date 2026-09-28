@@ -206,17 +206,40 @@ A profile whose provider kind is not in the manifest's `providerKinds` is reject
 
 | Agent | Mapping |
 |---|---|
-| Claude Code | anthropic: `ANTHROPIC_API_KEY`; anthropic_compat/openrouter: `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`; ollama: `ANTHROPIC_BASE_URL=<ollama root>` (needs Ollama ≥ 0.14 with its Anthropic-compatible API; the model is also set as `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` because Ollama has no Claude model names; tool use quality depends on the local model) |
-| Codex | openai without base URL: `OPENAI_API_KEY`; otherwise `-c model_provider="vibe"` + `model_providers.vibe.{name,base_url,env_key="VIBE_PROVIDER_KEY",wire_api="responses"}` (Codex 0.15x rejects `wire_api="chat"`; the endpoint must serve `/v1/responses` – Ollama ≥ 0.13, OpenRouter, LiteLLM do). Ollama base `<root>/v1`. |
+| Claude Code | anthropic: `ANTHROPIC_API_KEY`; anthropic_compat/openrouter: `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (anthropic_compat also `ANTHROPIC_MODEL=<model>`, so the session does not start on Claude Code's default model name); ollama: `ANTHROPIC_BASE_URL=<ollama root>` (needs Ollama ≥ 0.14 with its Anthropic-compatible API; the model is also set as `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` because Ollama has no Claude model names; tool use quality depends on the local model) |
+| Codex | openai without base URL: `OPENAI_API_KEY`; otherwise `-c model_provider="vibe"` + `model_providers.vibe.{name,base_url,env_key="VIBE_PROVIDER_KEY",wire_api="responses"}` (Codex 0.15x rejects `wire_api="chat"`; the endpoint must serve `/v1/responses` – Ollama ≥ 0.13, OpenRouter, LiteLLM, LM Studio do). Ollama base `<root>/v1`. |
 | Codex × openai_chatgpt | custom provider `vibe` with `base_url="https://chatgpt.com/backend-api/codex"`, `wire_api="responses"`, `auth.command=/opt/wsd/agentforge-chatgpt-token` + `auth.args=[<providerId>]` (Codex re-runs it every 5 min and after a 401) and `env_http_headers={"ChatGPT-Account-ID"="VIBE_CHATGPT_ACCOUNT_ID"}`. Needs the workspace image with the helper. |
 | OpenCode / Kilo × openai_chatgpt | built-in `openai` OAuth login via `OPENCODE_AUTH_CONTENT` / `KILO_AUTH_CONTENT` = `{"openai":{"type":"oauth","access","refresh":"","expires","accountId"}}` (replaces auth.json for the process; no refresh token, so a session lasts until the access token expires – resuming the session injects a fresh one); config only sets `model: "openai/<model>"`. OpenCode only offers its Codex-approved models (e.g. gpt-5.5). |
 | OpenCode / Kilo | inline JSON config in `OPENCODE_CONFIG_CONTENT` / `KILO_CONFIG_CONTENT` (merged over the user config): native providers `anthropic`/`openai`/`google`, otherwise provider `vibe` with `@ai-sdk/openai-compatible` (openai_compat/openrouter/ollama `<root>/v1`) or `@ai-sdk/anthropic` (anthropic_compat), models = provider models + selected model. Key as `{env:VIBE_PROVIDER_KEY}`. Model becomes `<provider>/<model>` (`--model` for the TUI, ACP `set_model` for chats). |
 | Gemini CLI | kind `gemini`: `GEMINI_API_KEY`, `GEMINI_DEFAULT_AUTH_TYPE=gemini-api-key`, optional `GOOGLE_GEMINI_BASE_URL`. |
 | Qwen Code | OpenAI-like kinds: `OPENAI_API_KEY/OPENAI_BASE_URL/OPENAI_MODEL`; anthropic(-compat): `ANTHROPIC_API_KEY/BASE_URL/MODEL`; gemini: `GEMINI_API_KEY/GEMINI_MODEL`; plus `--auth-type <openai\|anthropic\|gemini>` (TUI and ACP) and `QWEN_DEFAULT_AUTH_TYPE`. |
 | Copilot CLI | BYOK: `COPILOT_PROVIDER_{TYPE,BASE_URL,API_KEY}`, `COPILOT_MODEL` (required by Copilot for BYOK), `COPILOT_PROVIDER_WIRE_API=responses` for api.openai.com. |
-| Cline | `CLINE_PROVIDER` (anthropic, openai-native, openai-compatible, openrouter, ollama, gemini) + `CLINE_MODEL`; the key goes into `CLINE_API_KEY` (in ACP mode Cline only starts without an account login when it is set, and then uses it as the provider key; Ollama gets a placeholder). The base URL is written, without the key, to `/tmp/agentforge-cline-<providerId>.json` by an `sh -c` wrapper before `exec cline …` and passed via `CLINE_PROVIDER_SETTINGS_PATH` – `~/.cline` stays untouched. TUI also gets `--provider <id>`; chats set the model through the ACP config option `model`. |
+| Cline | `CLINE_PROVIDER` (anthropic, openai-native, openai-compatible, openrouter, ollama, gemini) + `CLINE_MODEL`; the key goes into `CLINE_API_KEY` (in ACP mode Cline only starts without an account login when it is set, and then uses it as the provider key; Ollama gets a placeholder). The base URL is written, without the key, to `/tmp/agentforge-cline/<providerId>-<model>/providers.json` by an `sh -c` wrapper before `exec cline …` and passed via `CLINE_PROVIDER_SETTINGS_PATH` (with a known context window the wrapper also writes Cline's model registry `models.json` next to it) – `~/.cline` stays untouched. TUI also gets `--provider <id>`; chats set the model through the ACP config option `model`. |
 | Aider (terminal only) | litellm env (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`/`OPENAI_API_BASE`, `OPENROUTER_API_KEY`, `OLLAMA_API_BASE`, `GEMINI_API_KEY`); model prefixed `openai/`, `openrouter/`, `ollama_chat/`, `gemini/`, `anthropic/` (compat). |
 | Goose | `GOOSE_PROVIDER` (anthropic/openai/openrouter/ollama/google) + `GOOSE_MODEL` + `ANTHROPIC_HOST` / `OPENAI_HOST`+`OPENAI_BASE_PATH` / `OLLAMA_HOST` / key env. No model flag. |
+| Kimi Code | `KIMI_MODEL_{NAME,API_KEY,BASE_URL,PROVIDER_TYPE}` (type `openai` for OpenAI-like kinds, `kimi` for api.moonshot.ai/.cn / kimi.com, `anthropic` for anthropic(-compat) at the root URL); Kimi builds an in-memory provider from it, `~/.kimi-code/config.toml` stays untouched. No `--model` flag (it expects a config alias and would override the env). Without a model the user's own Kimi login applies. |
+
+#### Context window (`agents/providers/context-window.ts`)
+Agents only know the windows of models in their own catalog; for local servers and gateways they guess (Claude Code
+200k/1M, Codex ~258k, Goose/Copilot 128k, OpenCode/Kilo none → no usage report). On every launch in provider mode the
+server asks the provider for the model's window (2.5 s timeout per request, cached 60 s): LM Studio `/api/v0/models`
+(`loaded_context_length`, else `max_context_length`), Ollama `/api/ps` (`context_length` of the running model) or
+`num_ctx` from `/api/show`, llama.cpp `/props` (`n_ctx`), OpenRouter / generic `/models` fields (`context_length`,
+`max_model_len`, `max_input_tokens`, …), Gemini `inputTokenLimit`, Anthropic `max_input_tokens` if present. Plain
+OpenAI and ChatGPT subscriptions are not asked. The value goes to the agent (Claude `CLAUDE_CODE_MAX_CONTEXT_TOKENS`,
+Codex `model_context_window` + `model_auto_compact_token_limit` = 90 %, OpenCode/Kilo `limit.context`/`limit.output`
+of the selected model, Copilot `COPILOT_PROVIDER_MAX_PROMPT_TOKENS`, Goose `GOOSE_CONTEXT_LIMIT`, Cline `models.json`,
+Kimi `KIMI_MODEL_MAX_CONTEXT_SIZE`) and as `contextWindow` in `agent.start` to the adapter, where it overrides the
+agent's own window for the chat's context display.
+
+#### Context usage (adapters)
+`usage` events carry `contextUsed` (tokens of the latest model request) and, with a known window, `contextWindow` +
+`contextPercent`. Sources: ACP `usage_update` (Claude Code, OpenCode, Kilo, Copilot, Goose, Kimi Code), Codex
+`thread/tokenUsage/updated` (`last.totalTokens`), Qwen Code's per-request `_meta.usage` on message chunks, and for agents
+that report none (Cline) or only per-turn sums (Gemini CLI, `_meta.quota`) their own session files, read by wsd after each
+tool call and turn: `~/.cline/data/sessions/<id>/<id>.messages.json` (last assistant `metrics`) and
+`~/.gemini/tmp/*/chats/session-*-<id first 8>.jsonl` (last `gemini` record's `tokens`). The chat header shows it as a
+ring with the percentage (tooltip: used / window).
 
 ## Projektmanagement (Phase 5, `routes/pm.ts`, services in `apps/server/src/pm/`)
 

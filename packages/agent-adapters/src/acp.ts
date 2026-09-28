@@ -4,6 +4,7 @@
 // agents (claude-agent-acp, opencode, cline, kilo, gemini) never fail schema validation.
 
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type * as acp from '@agentclientprotocol/sdk';
 import type { AgentEvent, ApprovalOption, FileDiff, ImageInput, PlanEntry, QuestionAnswers, QuestionField, ToolKind } from '@vibe/shared';
@@ -11,6 +12,7 @@ import { BaseSession, newId } from './base.js';
 import { answersToContent, schemaToFields, type ElicitationResponse, type FormElicitation } from './elicitation.js';
 import { RpcError } from './jsonrpc.js';
 import type { AgentAdapter, AgentSessionHandle, AgentStartOptions } from './types.js';
+import { hasSessionFileUsage, sessionFileContext } from './usage-files.js';
 
 const PROTOCOL_VERSION = 1;
 
@@ -92,6 +94,22 @@ interface ClaudeCodeMeta {
   subagent?: unknown;
 }
 
+/** Per-request token usage some agents attach to message chunks (Qwen Code: `_meta.usage`). */
+function metaUsage(u: { _meta?: unknown }): { inputTokens: number; outputTokens?: number; totalTokens?: number } | null {
+  const usage = (u._meta as { usage?: unknown } | null | undefined)?.usage as Record<string, unknown> | undefined;
+  return usage && typeof usage.inputTokens === 'number' ? (usage as { inputTokens: number; outputTokens?: number; totalTokens?: number }) : null;
+}
+
+/** Turn totals from a PromptResponse: ACP `usage`, or Gemini CLI's `_meta.quota.token_count`. */
+function turnTokens(res: acp.PromptResponse | null | undefined): { inputTokens: number; outputTokens: number } | null {
+  if (res?.usage) return { inputTokens: res.usage.inputTokens, outputTokens: res.usage.outputTokens };
+  const tc = (res?._meta as { quota?: { token_count?: { input_tokens?: unknown; output_tokens?: unknown } } } | null | undefined)?.quota?.token_count;
+  if (tc && typeof tc.input_tokens === 'number' && typeof tc.output_tokens === 'number' && tc.input_tokens + tc.output_tokens > 0) {
+    return { inputTokens: tc.input_tokens, outputTokens: tc.output_tokens };
+  }
+  return null;
+}
+
 function claudeMeta(u: { _meta?: unknown }): ClaudeCodeMeta | undefined {
   return (u._meta as { claudeCode?: ClaudeCodeMeta } | null | undefined)?.claudeCode ?? undefined;
 }
@@ -124,6 +142,10 @@ export class AcpSession extends BaseSession {
   private turnActive = false;
   /** Updates are suppressed while session/load replays the history (we already have it). */
   private replaying = false;
+  /** The agent reports its context itself (`usage_update`); session-file fallbacks are skipped then. */
+  private agentContext = false;
+  private lastContext = '';
+  private contextProbe: NodeJS.Timeout | null = null;
 
   constructor(opts: AgentStartOptions) {
     super(opts);
@@ -190,6 +212,8 @@ export class AcpSession extends BaseSession {
     // externalId last: session.info is only emitted from here on (one snapshot for the handshake).
     this.externalId = this.sessionId;
     this.updateInfo({});
+    // A resumed conversation already fills part of the context.
+    if (resumeId) this.scheduleContextProbe(0);
   }
 
   private applySessionState(resp: { modes?: acp.SessionModeState | null; configOptions?: acp.SessionConfigOption[] | null; models?: LegacyModelState | null } | null) {
@@ -361,6 +385,7 @@ export class AcpSession extends BaseSession {
   }
 
   protected override onProcessExit(): void {
+    if (this.contextProbe) clearTimeout(this.contextProbe);
     this.approvals.clear();
     this.questions.clear();
     if (this.turnActive) {
@@ -434,6 +459,8 @@ export class AcpSession extends BaseSession {
           this.childText(parent, u.sessionUpdate === 'agent_message_chunk' ? 'assistant' : 'thought', contentText(u.content), u.messageId);
           break;
         }
+        const mu = !this.agentContext ? metaUsage(u) : null;
+        if (mu) this.emitContext(mu.totalTokens ?? mu.inputTokens + (mu.outputTokens ?? 0));
         this.delta(u.sessionUpdate === 'agent_message_chunk' ? 'assistant' : 'thought', contentText(u.content), u.messageId);
         break;
       }
@@ -464,9 +491,10 @@ export class AcpSession extends BaseSession {
         this.updateInfo(this.infoFromConfig());
         break;
       case 'usage_update':
+        this.agentContext = true;
+        this.lastContext = '';
         this.emit({
-          type: 'usage',
-          ...(u.size ? { contextPercent: Math.round((u.used / u.size) * 1000) / 10 } : {}),
+          ...this.contextUsage(u.used, u.size),
           ...(u.cost && u.cost.currency.toUpperCase() === 'USD' ? { costUsd: u.cost.amount } : {}),
         });
         break;
@@ -545,6 +573,7 @@ export class AcpSession extends BaseSession {
     if (u.status === 'completed' || u.status === 'failed') {
       if (t.kind === 'agent') this.closeChildMessage(u.toolCallId);
       t.done = true;
+      this.scheduleContextProbe();
       this.emit({
         type: 'tool.done',
         id: u.toolCallId,
@@ -598,8 +627,11 @@ export class AcpSession extends BaseSession {
       .then(
         (res) => {
           this.closeMessages();
-          if (res?.usage) this.emit({ type: 'usage', inputTokens: res.usage.inputTokens, outputTokens: res.usage.outputTokens });
+          const tokens = turnTokens(res);
+          if (tokens) this.emit({ type: 'usage', ...tokens });
           this.finishTurn(res?.stopReason ?? 'end_turn');
+          // The agent writes its session file around the end of the turn.
+          this.scheduleContextProbe(300);
         },
         (err: Error) => {
           this.closeMessages();
@@ -608,6 +640,29 @@ export class AcpSession extends BaseSession {
           this.finishTurn('error');
         },
       );
+  }
+
+  /** Context usage event, skipped when unchanged (per-chunk sources repeat the same numbers). */
+  private emitContext(used: number) {
+    const ev = this.contextUsage(used);
+    const key = `${ev.contextUsed}/${ev.contextWindow ?? ''}`;
+    if (key === this.lastContext) return;
+    this.lastContext = key;
+    this.emit(ev);
+  }
+
+  /** Reads the context from the agent's session files (agents without own reporting), debounced. */
+  private scheduleContextProbe(delayMs = 1000) {
+    if (this.agentContext || !hasSessionFileUsage(this.opts.agentId) || !this.sessionId) return;
+    if (this.contextProbe) clearTimeout(this.contextProbe);
+    this.contextProbe = setTimeout(() => {
+      this.contextProbe = null;
+      const home = this.opts.env.HOME || os.homedir();
+      void sessionFileContext(this.opts.agentId!, this.sessionId!, home).then((used) => {
+        if (used !== null && !this.agentContext) this.emitContext(used);
+      });
+    }, delayMs);
+    this.contextProbe.unref?.();
   }
 
   private finishTurn(stopReason: string) {

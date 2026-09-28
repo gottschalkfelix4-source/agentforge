@@ -19,7 +19,7 @@ const isAnthropicLike = (k: string) => k === 'anthropic' || k === 'anthropic_com
 
 // ---- Claude Code ------------------------------------------------------------------------------
 
-export const renderClaude: ProviderRenderer = ({ provider: p, apiKey, model }) => {
+export const renderClaude: ProviderRenderer = ({ provider: p, apiKey, model, contextWindow }) => {
   const r = empty();
   switch (p.kind) {
     case 'anthropic':
@@ -31,6 +31,9 @@ export const renderClaude: ProviderRenderer = ({ provider: p, apiKey, model }) =
       r.env.ANTHROPIC_BASE_URL = anthropicRoot(p);
       r.env.ANTHROPIC_AUTH_TOKEN = apiKey;
       r.env.ANTHROPIC_API_KEY = '';
+      // Start on the provider's model; otherwise the session opens on Claude Code's default model name,
+      // which a gateway or local server does not serve (and whose 1M window is not the model's).
+      if (model && p.kind === 'anthropic_compat') r.env.ANTHROPIC_MODEL = model;
       break;
     case 'ollama':
       // Ollama ≥ 0.14 serves the Anthropic Messages API at its root URL.
@@ -46,12 +49,18 @@ export const renderClaude: ProviderRenderer = ({ provider: p, apiKey, model }) =
       }
       break;
   }
+  // Window of models Claude Code does not know (it assumes 200k); ignored for Claude models.
+  if (contextWindow) r.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(contextWindow);
   return r;
 };
 
 // ---- Codex ------------------------------------------------------------------------------------
 
-export const renderCodex: ProviderRenderer = ({ provider: p, apiKey, chatgpt }) => {
+/** Codex falls back to a ~258k window and no auto-compaction for models without a catalog entry. */
+const codexWindowArgs = (w: number | null | undefined): string[] =>
+  w ? ['-c', `model_context_window=${w}`, '-c', `model_auto_compact_token_limit=${Math.floor(w * 0.9)}`] : [];
+
+export const renderCodex: ProviderRenderer = ({ provider: p, apiKey, chatgpt, contextWindow }) => {
   const r = empty();
   if (p.kind === 'openai_chatgpt') {
     // ChatGPT subscription: Codex asks Agentforge for the current access token (`auth.command`, re-run every
@@ -83,6 +92,7 @@ export const renderCodex: ProviderRenderer = ({ provider: p, apiKey, chatgpt }) 
     '-c', `model_providers.vibe.base_url=${JSON.stringify(openaiBase(p))}`,
     '-c', `model_providers.vibe.env_key="VIBE_PROVIDER_KEY"`,
     '-c', `model_providers.vibe.wire_api="responses"`,
+    ...codexWindowArgs(contextWindow),
   ];
   r.args = args;
   r.structuredArgs = [...args];
@@ -96,7 +106,7 @@ const KEY_REF = '{env:VIBE_PROVIDER_KEY}';
 
 /** Inline config (OPENCODE_CONFIG_CONTENT / KILO_CONFIG_CONTENT); the key is referenced, never embedded. */
 export function openCodeConfig(input: Parameters<ProviderRenderer>[0]): { config: Record<string, unknown>; model: string | null } {
-  const { provider: p, model } = input;
+  const { provider: p, model, contextWindow } = input;
   // ChatGPT subscription: OpenCode's built-in `openai` OAuth login (tokens via OPENCODE_AUTH_CONTENT).
   if (p.kind === 'openai_chatgpt') {
     const fullModel = model ? `openai/${model}` : null;
@@ -118,7 +128,10 @@ export function openCodeConfig(input: Parameters<ProviderRenderer>[0]): { config
       npm: anthropic ? '@ai-sdk/anthropic' : '@ai-sdk/openai-compatible',
       name: p.name,
       options: { baseURL: anthropic ? `${anthropicRoot(p)}/v1` : openaiBase(p), apiKey: KEY_REF },
-      models: Object.fromEntries(models.map((m) => [m, { name: m }])),
+      // With a known window OpenCode also reports the context usage (ACP usage_update) and compacts in time.
+      models: Object.fromEntries(
+        models.map((m) => [m, m === model && contextWindow ? { name: m, limit: { context: contextWindow, output: Math.min(32_000, Math.floor(contextWindow / 4)) } } : { name: m }]),
+      ),
     };
   }
   const fullModel = model ? `${providerId}/${model}` : null;
@@ -194,7 +207,7 @@ export const renderQwen: ProviderRenderer = ({ provider: p, apiKey, model }) => 
 
 // ---- GitHub Copilot CLI (BYOK) ----------------------------------------------------------------
 
-export const renderCopilot: ProviderRenderer = ({ provider: p, apiKey, model }) => {
+export const renderCopilot: ProviderRenderer = ({ provider: p, apiKey, model, contextWindow }) => {
   const r = empty();
   if (isOpenAiLike(p.kind)) {
     r.env.COPILOT_PROVIDER_TYPE = 'openai';
@@ -209,6 +222,7 @@ export const renderCopilot: ProviderRenderer = ({ provider: p, apiKey, model }) 
   }
   if (apiKey) r.env.COPILOT_PROVIDER_API_KEY = apiKey;
   if (model) r.env.COPILOT_MODEL = model;
+  if (contextWindow) r.env.COPILOT_PROVIDER_MAX_PROMPT_TOKENS = String(contextWindow);
   // BYOK: COPILOT_MODEL selects the model; the ACP side lists no models to switch to.
   r.structuredModel = null;
   return r;
@@ -244,8 +258,16 @@ function clineBaseUrl(p: Parameters<ProviderRenderer>[0]['provider']): string | 
   }
 }
 
-/** Keyless provider settings file Cline reads from CLINE_PROVIDER_SETTINGS_PATH (written by `wrap`). */
-export const CLINE_SETTINGS_WRAP = ['sh', '-c', 'printf "%s" "$VIBE_CLINE_SETTINGS" > "$CLINE_PROVIDER_SETTINGS_PATH" && exec "$@"', 'sh'];
+/**
+ * Keyless provider settings file Cline reads from CLINE_PROVIDER_SETTINGS_PATH, plus the model registry next to
+ * it (`models.json`, context window of OpenAI-compatible models) when VIBE_CLINE_MODELS is set (written by `wrap`).
+ */
+export const CLINE_SETTINGS_WRAP = [
+  'sh',
+  '-c',
+  'd=$(dirname "$CLINE_PROVIDER_SETTINGS_PATH") && mkdir -p "$d" && printf "%s" "$VIBE_CLINE_SETTINGS" > "$CLINE_PROVIDER_SETTINGS_PATH" && { [ -z "$VIBE_CLINE_MODELS" ] || printf "%s" "$VIBE_CLINE_MODELS" > "$d/models.json"; } && exec "$@"',
+  'sh',
+];
 
 /**
  * Cline's ACP mode ignores CLI flags and only starts a session without an account login when CLINE_API_KEY
@@ -253,7 +275,7 @@ export const CLINE_SETTINGS_WRAP = ['sh', '-c', 'printf "%s" "$VIBE_CLINE_SETTIN
  * CLINE_MODEL, the base URL from a provider settings file without the key (/tmp, rewritten on every launch,
  * so the user's ~/.cline stays untouched). The chat picks the model via the ACP `model` option.
  */
-export const renderCline: ProviderRenderer = ({ provider: p, apiKey, model }) => {
+export const renderCline: ProviderRenderer = ({ provider: p, apiKey, model, contextWindow }) => {
   const r = empty();
   const id = CLINE_PROVIDER[p.kind];
   if (!id) return r;
@@ -273,7 +295,20 @@ export const renderCline: ProviderRenderer = ({ provider: p, apiKey, model }) =>
       },
     },
   });
-  r.env.CLINE_PROVIDER_SETTINGS_PATH = `/tmp/agentforge-cline-${p.id.replace(/[^A-Za-z0-9_-]/g, '')}.json`;
+  // One directory per provider + model: the models.json next to the settings carries the model's window.
+  const dir = `${p.id}-${model ?? ''}`.replace(/[^A-Za-z0-9_.-]/g, '_');
+  r.env.CLINE_PROVIDER_SETTINGS_PATH = `/tmp/agentforge-cline/${dir}/providers.json`;
+  if (id === 'openai-compatible' && model && baseUrl && contextWindow) {
+    r.env.VIBE_CLINE_MODELS = JSON.stringify({
+      version: 1,
+      providers: {
+        [id]: {
+          provider: { name: 'OpenAI Compatible', baseUrl, defaultModelId: model },
+          models: { [model]: { id: model, name: model, contextWindow, maxInputTokens: contextWindow, capabilities: ['streaming', 'tools', 'images'] } },
+        },
+      },
+    });
+  }
   r.wrap = [...CLINE_SETTINGS_WRAP];
   switch (p.kind) {
     case 'anthropic':
@@ -347,7 +382,7 @@ export const renderAider: ProviderRenderer = ({ provider: p, apiKey, model }) =>
 
 // ---- Goose ------------------------------------------------------------------------------------
 
-export const renderGoose: ProviderRenderer = ({ provider: p, apiKey, model }) => {
+export const renderGoose: ProviderRenderer = ({ provider: p, apiKey, model, contextWindow }) => {
   const r = empty();
   switch (p.kind) {
     case 'anthropic':
@@ -383,6 +418,41 @@ export const renderGoose: ProviderRenderer = ({ provider: p, apiKey, model }) =>
   }
   // Goose has no model flag; GOOSE_MODEL is required together with GOOSE_PROVIDER.
   if (model && r.env.GOOSE_PROVIDER) r.env.GOOSE_MODEL = model;
+  if (contextWindow && r.env.GOOSE_PROVIDER) r.env.GOOSE_CONTEXT_LIMIT = String(contextWindow);
+  return r;
+};
+
+// ---- Kimi Code --------------------------------------------------------------------------------
+
+/** Moonshot's own API speaks the `kimi` provider type (thinking/tool extensions); anything else is plain OpenAI. */
+const isMoonshot = (url: string) => /(^|\.)(moonshot\.(ai|cn)|kimi\.com)$/i.test(new URL(url).hostname);
+
+/**
+ * Kimi Code builds an in-memory provider + model from the KIMI_MODEL_* env (the user's ~/.kimi-code/config.toml
+ * stays untouched). KIMI_MODEL_NAME is the switch; the model alias it creates is selected by default, so no
+ * `--model` flag (that expects a config alias and would override the env).
+ */
+export const renderKimi: ProviderRenderer = ({ provider: p, apiKey, model, contextWindow }) => {
+  const r = empty();
+  if (!model) return r;
+  let type: string;
+  let baseUrl: string;
+  if (isOpenAiLike(p.kind)) {
+    baseUrl = openaiBase(p);
+    type = isMoonshot(baseUrl) ? 'kimi' : 'openai';
+  } else if (isAnthropicLike(p.kind)) {
+    baseUrl = anthropicRoot(p);
+    type = 'anthropic';
+  } else {
+    return r;
+  }
+  r.env.KIMI_MODEL_NAME = model;
+  r.env.KIMI_MODEL_API_KEY = keyOr(apiKey, p.kind === 'ollama' ? 'ollama' : 'none');
+  r.env.KIMI_MODEL_BASE_URL = baseUrl;
+  r.env.KIMI_MODEL_PROVIDER_TYPE = type;
+  if (contextWindow) r.env.KIMI_MODEL_MAX_CONTEXT_SIZE = String(contextWindow);
+  r.model = null;
+  r.structuredModel = null;
   return r;
 };
 
@@ -425,6 +495,7 @@ export const RENDERERS: Record<string, ProviderRenderer> = {
   cline: renderCline,
   aider: renderAider,
   goose: renderGoose,
+  kimi: renderKimi,
 };
 
 export function renderProvider(agentId: string, input: Parameters<ProviderRenderer>[0]): ProviderRender {

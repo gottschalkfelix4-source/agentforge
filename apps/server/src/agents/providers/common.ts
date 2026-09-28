@@ -7,6 +7,8 @@ export interface RenderInput {
   model: string | null;
   /** openai_chatgpt: current access token of the subscription login (never the refresh token). */
   chatgpt?: { accessToken: string; accountId: string; expiresAt: number } | null;
+  /** Context window of the model as reported by the provider (see context-window.ts); null = unknown. */
+  contextWindow?: number | null;
 }
 
 /**

@@ -50,6 +50,7 @@ AGENT_DIRS=(
   /home/coder/.copilot
   /home/coder/.config/goose
   /home/coder/.local/share/goose
+  /home/coder/.kimi-code
   /home/coder/.cache
 )
 for d in "${AGENT_DIRS[@]}"; do

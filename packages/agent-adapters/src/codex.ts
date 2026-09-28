@@ -307,9 +307,8 @@ export class CodexSession extends BaseSession {
         break;
       case 'thread/tokenUsage/updated': {
         const u = (params as cx.ThreadTokenUsageUpdatedNotification).tokenUsage;
-        const ev: Extract<AgentEvent, { type: 'usage' }> = { type: 'usage', inputTokens: u.total.inputTokens, outputTokens: u.total.outputTokens };
-        if (u.modelContextWindow) ev.contextPercent = Math.round((u.last.totalTokens / u.modelContextWindow) * 1000) / 10;
-        this.emit(ev);
+        // `last` is the latest model request, i.e. what is in the context right now.
+        this.emit({ ...this.contextUsage(u.last.totalTokens, u.modelContextWindow), inputTokens: u.total.inputTokens, outputTokens: u.total.outputTokens });
         break;
       }
       case 'error': {

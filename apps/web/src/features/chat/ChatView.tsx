@@ -38,6 +38,7 @@ import { SessionList } from './SessionList';
 import { dropSessionStream, useTranscript } from './session-stream';
 import { ThinkingIndicator } from './ThoughtBlock';
 import { TodoDock, todoDockEvents } from './TodoDock';
+import { ContextMeter } from './ContextMeter';
 import { TranscriptView, UsageLine, UserBubble } from './TranscriptView';
 import type { SessionInfo, TranscriptState } from './transcript';
 import { AgentAvatar, StatusDot, STATUS_LABEL, usePersistentState } from './util';
@@ -234,7 +235,8 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
           {STATUS_LABEL[status]}
         </span>
         <div className="ml-auto flex items-center gap-1">
-          {state.usage && <UsageLine usage={state.usage} className="hidden md:block" />}
+          {state.usage && <UsageLine usage={state.usage} withContext={false} className="hidden md:block" />}
+          {state.usage && <ContextMeter usage={state.usage} />}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-sm" aria-label="Session-Aktionen">

@@ -48,6 +48,14 @@ let clientCaps = {};
 
 async function runPrompt(sessionId, text) {
   cancelled = false;
+  if (text.includes('metausage')) {
+    // Qwen Code style: per-request usage on (empty) message chunks; Gemini CLI style turn totals in _meta.quota.
+    const usage = { inputTokens: 700, outputTokens: 50, totalTokens: 750 };
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Antwort' } });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '' }, _meta: { usage } });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '' }, _meta: { usage } });
+    return { stopReason: 'end_turn', _meta: { quota: { token_count: { input_tokens: 1400, output_tokens: 100 }, model_usage: [] } } };
+  }
   if (text.includes('notice')) {
     if (clientCaps.session?.notices) {
       update(sessionId, { sessionUpdate: 'notice', severity: 'warning', title: 'Warning', description: 'Auto mode classifier billing' });

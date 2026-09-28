@@ -66,6 +66,16 @@ Workspaces.
 **API-Key wird nicht mehr akzeptiert nach Umzug** – `AGENTFORGE_SECRET_KEY` (bzw. `secret.key`) weicht vom alten Wert
 ab; gespeicherte Secrets lassen sich nicht entschlüsseln. Alten Wert setzen oder Provider neu anlegen.
 
+**Kontextanzeige fehlt oder die Kontextgröße stimmt nicht** – Agentforge fragt die Kontextgröße beim Start einer
+Session beim Provider ab (LM Studio: geladene Kontextlänge, Ollama: `/api/ps` des laufenden Modells, llama.cpp:
+`/props`, Gateways: `/models`). Ist das Modell beim Start noch nicht geladen, meldet LM Studio die maximale Länge –
+Modell vorher laden bzw. nach einem Neuladen mit anderer Kontextlänge die Session neu starten. Liefert der Provider
+keine Größe, zeigt die Anzeige nur die belegten Token.
+
+**Claude Code über den Anthropic-Endpunkt von LM Studio zeigt etwa doppelt so viel Kontext** – LM Studio zählt
+gecachte Token sowohl in `input_tokens` als auch in `cache_read_input_tokens`; Claude Code addiert beides. Die anderen
+Agents (OpenAI-kompatibler Endpunkt) sind nicht betroffen.
+
 ## Backup
 
 **Backup-Download bricht ab** – Proxy-Timeouts/Puffer: große Voll-Exporte (`inkl. Projektdateien`) werden gestreamt;

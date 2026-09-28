@@ -206,6 +206,22 @@ export const AGENT_MANIFESTS: AgentManifest[] = [
     githubRepo: 'block/goose',
   },
   {
+    id: 'kimi',
+    label: 'Kimi Code',
+    bin: 'kimi',
+    ptyArgs: [],
+    structured: { transport: 'acp', command: 'kimi', args: ['acp'] },
+    // Device-code login (Kimi Code account or Kimi Platform API key).
+    loginCommand: ['kimi', 'login'],
+    homeDirs: [{ name: 'kimi', containerPath: '/home/coder/.kimi-code' }],
+    // Updates come from Agentforge (/opt/vibe-tools); the workspace is the user's own project.
+    baseEnv: { KIMI_CODE_HOME: '/home/coder/.kimi-code', KIMI_CODE_NO_AUTO_UPDATE: '1', KIMI_CODE_TRUST_WORKSPACE: '1' },
+    providerKinds: ['openai', 'openai_compat', 'openrouter', 'ollama', 'anthropic', 'anthropic_compat'],
+    modelFlag: '--model',
+    npmPackage: '@moonshot-ai/kimi-code',
+    versionArgs: ['--version'],
+  },
+  {
     id: 'aider',
     label: 'Aider',
     bin: 'aider',

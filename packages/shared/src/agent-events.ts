@@ -92,7 +92,19 @@ export type AgentEvent =
   /** System notice from the agent runtime (warnings, fallbacks) — not part of the agent's answer. */
   | { type: 'notice'; severity: 'info' | 'warning' | 'error'; title: string; description?: string }
   | { type: 'diff.turn'; files: FileDiff[] }
-  | { type: 'usage'; inputTokens?: number; outputTokens?: number; costUsd?: number; contextPercent?: number }
+  /**
+   * Token usage. `contextUsed`/`contextWindow`: tokens currently in the context and the model's window (the
+   * window Agentforge resolved from the provider wins over the agent's own guess); `contextPercent` = used / window.
+   */
+  | {
+      type: 'usage';
+      inputTokens?: number;
+      outputTokens?: number;
+      costUsd?: number;
+      contextPercent?: number;
+      contextUsed?: number;
+      contextWindow?: number;
+    }
   | { type: 'status'; status: SessionStatus; message?: string }
   | { type: 'turn.start' }
   | { type: 'turn.done'; stopReason: string }

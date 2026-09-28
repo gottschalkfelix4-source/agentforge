@@ -185,7 +185,8 @@ describe('gemini / qwen / copilot / cline / aider / goose', () => {
     const s = buildStructuredLaunch('cline', ctx);
     expect(s.command).toBe('sh');
     expect(s.args).toEqual([...CLINE_SETTINGS_WRAP.slice(1), 'cline', '--acp']);
-    expect(s.env).toMatchObject({ CLINE_API_KEY: KEY, CLINE_PROVIDER: 'openai-compatible', CLINE_PROVIDER_SETTINGS_PATH: '/tmp/agentforge-cline-prov-1.json' });
+    expect(s.env).toMatchObject({ CLINE_API_KEY: KEY, CLINE_PROVIDER: 'openai-compatible', CLINE_PROVIDER_SETTINGS_PATH: '/tmp/agentforge-cline/prov-1-m1/providers.json' });
+    expect(s.env.VIBE_CLINE_MODELS).toBeUndefined();
     const settings = JSON.parse(s.env.VIBE_CLINE_SETTINGS!);
     expect(settings.providers['openai-compatible'].settings).toEqual({ provider: 'openai-compatible', model: 'm1', baseUrl: 'https://yolo.example/v1' });
     expect(s.env.VIBE_CLINE_SETTINGS).not.toContain(KEY);
@@ -208,6 +209,81 @@ describe('gemini / qwen / copilot / cline / aider / goose', () => {
     const l = buildAgentLaunch('goose', 'run', { profile: profile('goose'), provider: provider('ollama'), apiKey: '' });
     expect(l.args).toEqual(['session']);
     expect(l.env).toMatchObject({ GOOSE_PROVIDER: 'ollama', OLLAMA_HOST: 'http://host.docker.internal:11434', GOOSE_DISABLE_KEYRING: '1' });
+  });
+});
+
+describe('context window from the provider', () => {
+  const W = 132_096;
+  const withWindow = (agent: string, kind: ProviderKind, p: Partial<ProviderRecord> = {}, model: string | null = 'm1') =>
+    renderProvider(agent, { provider: provider(kind, p), apiKey: KEY, model, contextWindow: W });
+
+  it('claude → CLAUDE_CODE_MAX_CONTEXT_TOKENS; Anthropic-compatible endpoints start on the provider model', () => {
+    const r = withWindow('claude', 'anthropic_compat', { baseUrl: 'http://lmstudio:1234' });
+    expect(r.env).toMatchObject({ CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(W), ANTHROPIC_MODEL: 'm1', ANTHROPIC_BASE_URL: 'http://lmstudio:1234' });
+    expect(render('claude', 'anthropic_compat', { baseUrl: 'http://x' }).env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBeUndefined();
+  });
+  it('codex → model_context_window + auto-compaction at 90 %', () => {
+    const r = withWindow('codex', 'openai_compat', { baseUrl: 'http://lmstudio:1234/v1' });
+    expect(r.structuredArgs.join(' ')).toContain(`model_context_window=${W} -c model_auto_compact_token_limit=${Math.floor(W * 0.9)}`);
+    expect(r.args).toEqual(r.structuredArgs);
+    expect(render('codex', 'openai_compat', { baseUrl: 'http://x/v1' }).structuredArgs.join(' ')).not.toContain('model_context_window');
+  });
+  it('opencode / kilo → limit on the selected model only', () => {
+    const r = renderProvider('opencode', { provider: provider('openai_compat', { baseUrl: 'http://x/v1', models: ['m1', 'm2'] }), apiKey: KEY, model: 'm1', contextWindow: W });
+    const cfg = JSON.parse(r.env.OPENCODE_CONFIG_CONTENT!);
+    expect(cfg.provider.vibe.models).toEqual({ m1: { name: 'm1', limit: { context: W, output: 32_000 } }, m2: { name: 'm2' } });
+    const small = renderProvider('kilo', { provider: provider('ollama'), apiKey: '', model: 'q', contextWindow: 8192 });
+    expect(JSON.parse(small.env.KILO_CONFIG_CONTENT!).provider.vibe.models.q.limit).toEqual({ context: 8192, output: 2048 });
+  });
+  it('copilot / goose → their context env', () => {
+    expect(withWindow('copilot', 'openai_compat', { baseUrl: 'http://x/v1' }).env.COPILOT_PROVIDER_MAX_PROMPT_TOKENS).toBe(String(W));
+    expect(withWindow('goose', 'openai_compat', { baseUrl: 'http://x/v1' }).env.GOOSE_CONTEXT_LIMIT).toBe(String(W));
+  });
+  it('cline → models.json entry for OpenAI-compatible models next to the provider settings', () => {
+    const r = withWindow('cline', 'openai_compat', { id: 'p/1', baseUrl: 'http://lmstudio:1234/v1' }, 'org/model:q4');
+    expect(r.env.CLINE_PROVIDER_SETTINGS_PATH).toBe('/tmp/agentforge-cline/p_1-org_model_q4/providers.json');
+    const reg = JSON.parse(r.env.VIBE_CLINE_MODELS!);
+    expect(reg.providers['openai-compatible']).toEqual({
+      provider: { name: 'OpenAI Compatible', baseUrl: 'http://lmstudio:1234/v1', defaultModelId: 'org/model:q4' },
+      models: { 'org/model:q4': { id: 'org/model:q4', name: 'org/model:q4', contextWindow: W, maxInputTokens: W, capabilities: ['streaming', 'tools', 'images'] } },
+    });
+    expect(r.env.VIBE_CLINE_MODELS).not.toContain(KEY);
+    // Built-in providers know their models.
+    expect(withWindow('cline', 'anthropic').env.VIBE_CLINE_MODELS).toBeUndefined();
+  });
+  it('the structured launch carries the window in provider mode only', () => {
+    const ctx = { profile: profile('opencode'), provider: provider('openai_compat', { baseUrl: 'http://x/v1' }), apiKey: KEY, contextWindow: W };
+    expect(buildStructuredLaunch('opencode', ctx).contextWindow).toBe(W);
+    expect(buildStructuredLaunch('opencode', { ...ctx, profile: profile('opencode', { authMode: 'subscription' }) }).contextWindow).toBeNull();
+  });
+});
+
+describe('kimi code', () => {
+  it('openai_compat → KIMI_MODEL_* env with openai type and the window, no --model flag', () => {
+    const r = renderProvider('kimi', { provider: provider('openai_compat', { baseUrl: 'http://lmstudio:1234/v1' }), apiKey: KEY, model: 'm1', contextWindow: 132_096 });
+    expect(r.env).toEqual({
+      KIMI_MODEL_NAME: 'm1',
+      KIMI_MODEL_API_KEY: KEY,
+      KIMI_MODEL_BASE_URL: 'http://lmstudio:1234/v1',
+      KIMI_MODEL_PROVIDER_TYPE: 'openai',
+      KIMI_MODEL_MAX_CONTEXT_SIZE: '132096',
+    });
+    const tui = buildAgentLaunch('kimi', 'run', { profile: profile('kimi'), provider: provider('openai_compat', { baseUrl: 'http://x/v1' }), apiKey: KEY });
+    expect(tui).toMatchObject({ command: 'kimi', args: [] });
+    expect(tui.env).toMatchObject({ KIMI_MODEL_NAME: 'm1', KIMI_CODE_HOME: '/home/coder/.kimi-code' });
+    const s = buildStructuredLaunch('kimi', { profile: profile('kimi'), provider: provider('ollama'), apiKey: '' });
+    expect(s).toMatchObject({ command: 'kimi', args: ['acp'], model: null });
+    expect(s.env).toMatchObject({ KIMI_MODEL_BASE_URL: 'http://host.docker.internal:11434/v1', KIMI_MODEL_API_KEY: 'ollama' });
+  });
+  it('Moonshot API → kimi type; Anthropic-compatible → anthropic type at the root', () => {
+    expect(render('kimi', 'openai_compat', { baseUrl: 'https://api.moonshot.ai/v1' }, 'kimi-k2').env.KIMI_MODEL_PROVIDER_TYPE).toBe('kimi');
+    expect(render('kimi', 'anthropic_compat', { baseUrl: 'https://api.example.com/v1' }).env).toMatchObject({
+      KIMI_MODEL_PROVIDER_TYPE: 'anthropic',
+      KIMI_MODEL_BASE_URL: 'https://api.example.com',
+    });
+  });
+  it('without a model the user\'s own Kimi login/config applies', () => {
+    expect(render('kimi', 'openai_compat', { baseUrl: 'http://x/v1' }, null).env).toEqual({});
   });
 });
 
