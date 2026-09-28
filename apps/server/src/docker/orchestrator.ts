@@ -203,8 +203,9 @@ export class Orchestrator {
     if (!this.cfg.hostDataPath.startsWith('/')) env.push('CHOKIDAR_USEPOLLING=true', 'WATCHPACK_POLLING=true');
 
     const portKey = `${WSD_PORT}/tcp`;
-    const container = await this.docker.createContainer({
-      name: this.containerName(spec.projectId),
+    const name = this.containerName(spec.projectId);
+    const create = () => this.docker.createContainer({
+      name,
       Image: spec.image,
       Hostname: `ws-${spec.projectId.slice(-8).toLowerCase()}`,
       Env: env,
@@ -239,7 +240,17 @@ export class Orchestrator {
         Init: false, // the image runs tini itself
       },
     });
-    return container.id;
+    try {
+      return (await create()).id;
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode !== 409) throw err;
+      // The name is held by a container of this project the database lost track of (e.g. an image update and a
+      // manual restart at the same time). Its files and logins are bind mounts, so replacing it loses nothing.
+      const stale = await this.inspect(name).catch(() => null);
+      if (!stale || stale.Config.Labels?.['vibe.project'] !== spec.projectId) throw err;
+      await this.remove(stale.Id);
+      return (await create()).id;
+    }
   }
 
   private async managed(containerId: string) {
