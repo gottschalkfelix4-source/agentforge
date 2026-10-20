@@ -51,6 +51,9 @@ services:
       PREVIEW_DOMAIN: ${PREVIEW_DOMAIN:-}                    # e.g. preview.example.com (subdomain mode)
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}                # own GitHub OAuth app (device flow)
       AGENTFORGE_SECURE_COOKIES: ${AGENTFORGE_SECURE_COOKIES:-0}         # 1 when only reached via HTTPS
+      # Reverse proxy whose X-Forwarded-* headers are trusted (client IP, https). Empty = loopback + this
+      # container's docker networks; a proxy elsewhere: its IP/CIDR, or a hop count like 1. See .env.example.
+      AGENTFORGE_TRUST_PROXY: ${AGENTFORGE_TRUST_PROXY:-}
       PUID: ${PUID:-}
       PGID: ${PGID:-}
       TZ: ${TZ:-}

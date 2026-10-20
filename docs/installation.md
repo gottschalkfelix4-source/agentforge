@@ -84,6 +84,7 @@ Solange kein Admin existiert, erzeugt der Server einen einmaligen Setup-Token, s
 | `PREVIEW_PORT_START` / `PREVIEW_PORT_COUNT` | `7100` / `20` | Port-Bereich (muss mit dem veröffentlichten Bereich übereinstimmen). |
 | `GITHUB_CLIENT_ID` | – | Client-ID einer eigenen GitHub-OAuth-App (Device Flow aktiviert). Alternativ in der UI. |
 | `AGENTFORGE_SECURE_COOKIES` | `0` | `1`, wenn Agentforge nur per HTTPS erreichbar ist (Cookie mit `Secure`). |
+| `AGENTFORGE_TRUST_PROXY` | Container: Loopback + eigene Docker-Netze; Host: keiner | Wessen `X-Forwarded-For`/`-Proto` geglaubt wird (Client-IP fürs Login-Rate-Limit, HTTPS-Erkennung): `false`, `true` (alle Hops – nur wenn der Proxy diese Header überschreibt), Hop-Anzahl wie `1` oder kommagetrennte IPs/CIDRs bzw. `loopback`, `linklocal`, `uniquelocal`. |
 | `AGENTFORGE_ALLOWED_ORIGINS` | – | Zusätzliche erlaubte Origins für WebSockets (kommagetrennt). |
 | `PUID` / `PGID` | – | Besitzer der Projektdateien in den Workspaces (Unraid: 99/100). |
 | `TZ` | – | Zeitzone, wird an Workspaces weitergereicht. |
@@ -92,7 +93,8 @@ Solange kein Admin existiert, erzeugt der Server einen einmaligen Setup-Token, s
 ## Reverse Proxy (HTTPS)
 
 Agentforge nutzt WebSockets (`/ws`, `/ws/term/…`). Der Proxy muss `Upgrade`/`Connection` durchreichen und lange
-Verbindungen erlauben. Hinter HTTPS `AGENTFORGE_SECURE_COOKIES=1` setzen. Uploads bis 25 MB.
+Verbindungen erlauben. Hinter HTTPS `AGENTFORGE_SECURE_COOKIES=1` setzen. Uploads bis 25 MB. Läuft der Proxy nicht
+im selben Docker-Netz wie Agentforge, seine Adresse in `AGENTFORGE_TRUST_PROXY` eintragen (z. B. `192.168.1.10`).
 
 ### Nginx Proxy Manager (NPM)
 

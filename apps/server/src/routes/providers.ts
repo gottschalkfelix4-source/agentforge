@@ -107,7 +107,35 @@ export function providerRepo(ctx: AppContext) {
       const r = ctx.db.get<ProfileRow>('SELECT * FROM agent_profiles WHERE id = ?', id);
       return r ? toProfile(r) : null;
     },
+    /** Records that a terminal of the project was launched with this ChatGPT provider (chat sessions are found via their profile). */
+    grantProject(projectId: string, p: ProviderRecord) {
+      if (p.kind !== 'openai_chatgpt') return;
+      ctx.db.run(
+        'INSERT INTO project_provider_grants (project_id, provider_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+        projectId,
+        p.id,
+        nowIso(),
+      );
+    },
   };
+}
+
+/**
+ * Whether a workspace may fetch the ChatGPT access token of a provider: only when the provider is used in
+ * that project – by a chat session's profile or by an agent terminal launched there.
+ */
+export function projectUsesProvider(db: AppContext['db'], projectId: string, providerId: string): boolean {
+  return !!db.get(
+    `SELECT 1 FROM project_provider_grants WHERE project_id = ? AND provider_id = ?
+     UNION ALL
+     SELECT 1 FROM agent_sessions s JOIN agent_profiles ap ON ap.id = s.profile_id
+      WHERE s.project_id = ? AND ap.auth_mode = 'provider' AND ap.provider_id = ?
+     LIMIT 1`,
+    projectId,
+    providerId,
+    projectId,
+    providerId,
+  );
 }
 
 export async function providerRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -153,7 +181,7 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext) {
     void (async (): Promise<{ result?: unknown; error?: string }> => {
       const providerId = (r.params as { providerId?: unknown } | null)?.providerId;
       const p = typeof providerId === 'string' ? repo.get(providerId) : null;
-      if (!p || p.kind !== 'openai_chatgpt') return { error: 'ChatGPT-Provider nicht gefunden' };
+      if (!p || p.kind !== 'openai_chatgpt' || !projectUsesProvider(db, projectId, p.id)) return { error: 'ChatGPT-Provider nicht gefunden' };
       try {
         const t = await chatgpt.tokens(p);
         return { result: { accessToken: t.accessToken, accountId: t.accountId } };

@@ -185,7 +185,7 @@ function StatusSection() {
                     {d.previewMode === 'subdomain' ? `Subdomain (*.${d.previewDomain ?? '?'})` : 'Ports'}
                   </Row>
                   <Row label="Secret-Key" ok={d.secretKeyFromEnv}>
-                    {d.secretKeyFromEnv ? 'aus VIBE_SECRET_KEY' : 'Datei secret.key im Datenverzeichnis'}
+                    {d.secretKeyFromEnv ? 'aus AGENTFORGE_SECRET_KEY' : 'Datei secret.key im Datenverzeichnis'}
                   </Row>
                 </>
               )}
@@ -460,10 +460,10 @@ export function SystemTab() {
           <CardHeader className="flex-row items-start gap-3">
             <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" />
             <div>
-              <CardTitle>VIBE_SECRET_KEY ist nicht gesetzt</CardTitle>
+              <CardTitle>AGENTFORGE_SECRET_KEY ist nicht gesetzt</CardTitle>
               <CardDescription className="mt-1">
                 Der Schlüssel zum Verschlüsseln von API-Keys wurde automatisch erzeugt und im Datenverzeichnis abgelegt.
-                Setze <code className="rounded bg-muted px-1 font-mono">VIBE_SECRET_KEY</code> als Umgebungsvariable, damit
+                Setze <code className="rounded bg-muted px-1 font-mono">AGENTFORGE_SECRET_KEY</code> als Umgebungsvariable, damit
                 gespeicherte Secrets nicht mit den Daten zusammen liegen und Backups/Umzüge sicher bleiben.
               </CardDescription>
             </div>
