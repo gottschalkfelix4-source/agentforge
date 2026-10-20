@@ -6,11 +6,13 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ChatView } from '@/features/chat/ChatView';
 import { GitPanel } from '@/features/git/GitPanel';
-import { BoardView } from '@/features/pm/BoardView';
-import { NotesView } from '@/features/pm/NotesView';
-import { RoadmapView } from '@/features/pm/RoadmapView';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { WorkspaceLayout } from './WorkspaceLayout';
+
+// Management views are split into their own chunks — they mount on demand anyway.
+const BoardView = React.lazy(() => import('@/features/pm/BoardView').then((m) => ({ default: m.BoardView })));
+const RoadmapView = React.lazy(() => import('@/features/pm/RoadmapView').then((m) => ({ default: m.RoadmapView })));
+const NotesView = React.lazy(() => import('@/features/pm/NotesView').then((m) => ({ default: m.NotesView })));
 
 const RIGHT_TABS: { id: RightPanelKind; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'preview', label: 'Vorschau', icon: Globe },
@@ -107,21 +109,23 @@ export function ProjectBody({
           workspaceFallback
         )}
       </div>
-      {view === 'board' && (
-        <div className="absolute inset-0">
-          <BoardView projectId={projectId} />
-        </div>
-      )}
-      {view === 'roadmap' && (
-        <div className="absolute inset-0">
-          <RoadmapView projectId={projectId} />
-        </div>
-      )}
-      {view === 'notes' && (
-        <div className="absolute inset-0">
-          <NotesView projectId={projectId} />
-        </div>
-      )}
+      <React.Suspense fallback={null}>
+        {view === 'board' && (
+          <div className="absolute inset-0">
+            <BoardView projectId={projectId} />
+          </div>
+        )}
+        {view === 'roadmap' && (
+          <div className="absolute inset-0">
+            <RoadmapView projectId={projectId} />
+          </div>
+        )}
+        {view === 'notes' && (
+          <div className="absolute inset-0">
+            <NotesView projectId={projectId} />
+          </div>
+        )}
+      </React.Suspense>
     </div>
   );
 }

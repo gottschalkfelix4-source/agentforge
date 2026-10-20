@@ -197,9 +197,13 @@ export function TerminalView({ projectId, termId, visible, isAlive, knownExit, o
       resizeSub.dispose();
       ws?.close();
       ws = null;
-      term.dispose();
       termRef.current = null;
       fitRef.current = null;
+      // xterm 5.5 defers Viewport.syncScrollArea (setTimeout after open(), rAF after reset()); disposing
+      // before those ran throws "Cannot read properties of undefined (reading 'dimensions')" — e.g. on
+      // StrictMode's remount or a quick unmount. Detach now, dispose once they have fired.
+      term.element?.remove();
+      requestAnimationFrame(() => setTimeout(() => term.dispose()));
     };
   }, [projectId, termId]);
 

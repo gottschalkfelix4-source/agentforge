@@ -21,7 +21,10 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    chunkSizeWarningLimit: 4000,
+    // The entry chunk is ~650 kB. Monaco (~3.3 MB; Rollup names its shared chunk after
+    // features/editor/language.ts) is only loaded on demand by the editor, the diff dialog and the chat
+    // code-block colorizer, and is expected to exceed this limit.
+    chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
         manualChunks(id) {

@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { AuthGate, PublicOnly } from '@/features/auth/AuthGate';
 import { LoginPage } from '@/features/auth/LoginPage';
@@ -5,7 +6,18 @@ import { SetupPage } from '@/features/auth/SetupPage';
 import { AppShell } from '@/features/projects/AppShell';
 import { HomePage } from '@/features/projects/HomePage';
 import { ProjectView } from '@/features/projects/ProjectView';
-import { SettingsPage } from '@/features/settings/SettingsPage';
+
+const SettingsPage = React.lazy(() =>
+  import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+);
+
+function Settings() {
+  return (
+    <React.Suspense fallback={null}>
+      <SettingsPage />
+    </React.Suspense>
+  );
+}
 
 export function AppRouter() {
   return (
@@ -36,8 +48,8 @@ export function AppRouter() {
         >
           <Route index element={<HomePage />} />
           <Route path="p/:projectId" element={<ProjectView />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="settings/:tab" element={<SettingsPage />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="settings/:tab" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -1,15 +1,10 @@
 import * as React from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import * as monaco from 'monaco-editor';
 import { Check, Copy, ExternalLink } from 'lucide-react';
-import { setupMonaco } from '@/lib/monaco';
 import { useNav, useUi } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { languageFor } from '@/features/editor/language';
 import { LOCAL_URL_RE, parseLocalUrl } from './util';
-
-setupMonaco();
 
 // ---- remark plugin: turn bare `localhost:3000` text into links ------------------------
 
@@ -50,60 +45,35 @@ function linkifyLocal(node: MdNode) {
 
 const remarkLocalhost = () => (tree: unknown) => linkifyLocal(tree as MdNode);
 
-// ---- syntax highlighting via Monaco's colorizer (already bundled) ----------------------
+// ---- syntax highlighting via Monaco's colorizer (loaded on demand) ---------------------
 
-const LANG_ALIASES: Record<string, string> = {
-  ts: 'typescript',
-  tsx: 'typescript',
-  js: 'javascript',
-  jsx: 'javascript',
-  sh: 'shell',
-  bash: 'shell',
-  zsh: 'shell',
-  console: 'shell',
-  shellscript: 'shell',
-  ps: 'powershell',
-  ps1: 'powershell',
-  py: 'python',
-  yml: 'yaml',
-  md: 'markdown',
-  rs: 'rust',
-  rb: 'ruby',
-  kt: 'kotlin',
-  cs: 'csharp',
-  'c++': 'cpp',
-  golang: 'go',
-  dockerfile: 'dockerfile',
-  toml: 'ini',
-  env: 'ini',
-  vue: 'html',
-  svelte: 'html',
-  jsonc: 'json',
-};
-
-let knownLangs: Set<string> | null = null;
-function monacoLang(lang: string): string | null {
-  const l = lang.toLowerCase();
-  if (!l) return null;
-  knownLangs ??= new Set(monaco.languages.getLanguages().map((x) => x.id));
-  const id = LANG_ALIASES[l] ?? l;
-  if (knownLangs.has(id)) return id;
-  const byExt = languageFor(`x.${l}`);
-  return byExt && byExt !== 'plaintext' && knownLangs.has(byExt) ? byExt : null;
+type Colorizer = typeof import('./monaco-colorize');
+let colorizer: Colorizer | null = null;
+let colorizerLoad: Promise<Colorizer> | null = null;
+/** Monaco is big — pull it in only once the first code block needs colors. */
+function loadColorizer(): Promise<Colorizer> {
+  colorizerLoad ??= import('./monaco-colorize').then((m) => {
+    colorizer = m;
+    if (wantedTheme) m.setTheme(wantedTheme);
+    appliedTheme = wantedTheme;
+    return m;
+  });
+  return colorizerLoad;
 }
 
 const colorCache = new Map<string, string>();
 
+let wantedTheme: string | null = null;
 let appliedTheme: string | null = null;
 /** Monaco's colorizer output depends on the global theme (token class ids) — keep it in sync with the app. */
 export function ensureMonacoTheme(theme: 'dark' | 'light') {
-  const name = theme === 'dark' ? 'vibe-dark' : 'vibe-light';
-  if (appliedTheme === name) return;
-  appliedTheme = name;
-  monaco.editor.setTheme(name);
+  wantedTheme = theme === 'dark' ? 'vibe-dark' : 'vibe-light';
+  if (!colorizer || appliedTheme === wantedTheme) return;
+  appliedTheme = wantedTheme;
+  colorizer.setTheme(wantedTheme);
 }
 
-function useColorized(code: string, lang: string | null, stable: boolean): string | null {
+function useColorized(code: string, lang: string, stable: boolean): string | null {
   const theme = useUi((s) => s.theme);
   ensureMonacoTheme(theme);
   const key = lang ? `${theme}\u0000${lang}\u0000${code}` : '';
@@ -121,9 +91,14 @@ function useColorized(code: string, lang: string | null, stable: boolean): strin
     let cancelled = false;
     const t = setTimeout(
       () => {
-        monaco.editor
-          .colorize(code, lang, { tabSize: 2 })
+        loadColorizer()
+          .then((c) => {
+            const mlang = c.monacoLang(lang);
+            if (!mlang || cancelled) return null;
+            return c.colorize(code, mlang);
+          })
           .then((out) => {
+            if (out == null) return;
             if (colorCache.size > 500) colorCache.clear();
             colorCache.set(key, out);
             if (!cancelled) setHtml(out);
@@ -163,8 +138,7 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
 }
 
 export function CodeBlock({ code, lang, streaming }: { code: string; lang: string; streaming?: boolean }) {
-  const mlang = React.useMemo(() => monacoLang(lang), [lang]);
-  const html = useColorized(code, mlang, !streaming);
+  const html = useColorized(code, lang, !streaming);
   return (
     <div className="group/code my-2 overflow-hidden rounded-lg border border-border bg-terminal">
       <div className="flex h-7 items-center justify-between border-b border-border/70 pr-1 pl-3 text-[11px] text-muted-foreground">
