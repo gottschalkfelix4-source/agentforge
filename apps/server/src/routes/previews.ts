@@ -17,6 +17,7 @@ export async function previewsRoutes(app: FastifyInstance, ctx: AppContext) {
   );
 
   if (ctx.cfg.previewMode === 'subdomain') service.attachSubdomain(app.server);
+  else if (ctx.cfg.previewMode === 'host') service.attachHost(app.server);
   else await service.startPortListeners();
   app.addHook('onClose', async () => service.close());
 
@@ -30,7 +31,9 @@ export async function previewsRoutes(app: FastifyInstance, ctx: AppContext) {
         'preview_unavailable',
         ctx.cfg.previewMode === 'subdomain'
           ? 'Vorschau nicht konfiguriert: PREVIEW_DOMAIN fehlt.'
-          : 'Keine Vorschau-Ports verfügbar (Port-Bereich belegt?).',
+          : ctx.cfg.previewMode === 'host'
+            ? 'Vorschau nicht konfiguriert: PREVIEW_HOST fehlt.'
+            : 'Keine Vorschau-Ports verfügbar (Port-Bereich belegt?).',
       );
     }
   };

@@ -19,7 +19,11 @@ export function normalizePath(path: string): string {
 
 /** URL the browser loads for a slot: origin of the slot + in-app path + one-time token. */
 export function frameUrl(slot: PreviewSlot, path: string): string {
-  const origin = slot.origin ?? `${window.location.protocol}//${window.location.hostname}:${slot.hostPort}`;
+  // Previews sit behind the same proxy as the app, so the page's scheme is the right one. The server's
+  // guess depends on trusting X-Forwarded-Proto and would yield http:// (blocked as mixed content) otherwise.
+  const origin = slot.origin
+    ? slot.origin.replace(/^https?:/, window.location.protocol)
+    : `${window.location.protocol}//${window.location.hostname}:${slot.hostPort}`;
   const norm = normalizePath(path);
   const hashAt = norm.indexOf('#');
   const beforeHash = hashAt < 0 ? norm : norm.slice(0, hashAt);

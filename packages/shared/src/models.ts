@@ -1,5 +1,6 @@
 // REST-level domain models shared by server and web.
 
+import type { PreviewMode } from './preview.js';
 import type { ApprovalPolicy } from './sessions.js';
 
 export type WorkspaceStatus = 'none' | 'creating' | 'starting' | 'running' | 'stopped' | 'error';
@@ -183,7 +184,7 @@ export type CreateTerminalRequest =
     };
 
 export interface SystemInfo {
-  previewMode: 'port' | 'subdomain';
+  previewMode: PreviewMode;
   dockerOk: boolean;
   dockerError: string | null;
   workspaceImage: string;

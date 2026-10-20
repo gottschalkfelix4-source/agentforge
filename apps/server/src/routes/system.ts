@@ -65,6 +65,7 @@ export async function systemRoutes(app: FastifyInstance, ctx: AppContext) {
       inContainer: ctx.cfg.inContainer,
       previewMode: ctx.cfg.previewMode,
       previewDomain: ctx.cfg.previewDomain,
+      previewHost: ctx.cfg.previewHost,
       secretKeyFromEnv: ctx.secrets.keyFromEnv,
       docker: docker,
       workspaceImage: image ?? { name: ctx.cfg.workspaceImage, present: false, id: null, digest: null, created: null, sizeBytes: null, version: null },

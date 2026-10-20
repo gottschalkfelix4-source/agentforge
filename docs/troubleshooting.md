@@ -55,7 +55,11 @@ Dev-Server) über `AGENTFORGE_ALLOWED_ORIGINS` freigeben.
 
 **Preview zeigt „auth required“ / 401** – Preview-Link über die UI neu öffnen (Token ist einmalig). Im Port-Modus
 müssen die Ports 7100–7119 (bzw. `PREVIEW_PORT_START`/`COUNT`) auf Host **und** Container identisch veröffentlicht
-sein. Im Subdomain-Modus: Wildcard-DNS, Wildcard-Zertifikat und `PREVIEW_DOMAIN` prüfen.
+sein. Im Host-Modus: DNS, Proxy-Host (WebSockets an) und `PREVIEW_HOST` prüfen. Im Subdomain-Modus:
+Wildcard-DNS, Wildcard-Zertifikat und `PREVIEW_DOMAIN` prüfen.
+
+**Preview bleibt leer, Portal läuft über HTTPS** – Port-Modus hinter einem Reverse Proxy: Die Ports 7100–7119
+sind von außen nicht erreichbar. `PREVIEW_HOST` einrichten, siehe [installation.md](installation.md#previews-hinter-dem-reverse-proxy).
 
 ## Agents
 

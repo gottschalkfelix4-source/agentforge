@@ -12,6 +12,9 @@ export interface CookieBinding {
 
 export const previewCookieName = (slot: number) => `${PV_COOKIE_PREFIX}${slot}`;
 
+/** Host mode: which slot the shared preview origin currently shows (set with each consumed token). */
+export const PV_ACTIVE_COOKIE = `${PV_COOKIE_PREFIX}active`;
+
 function mac(secret: Buffer, b: CookieBinding, issued: number): string {
   return createHmac('sha256', secret).update(`pv1|${b.slot}|${b.projectId}|${b.port}|${issued}`).digest('base64url');
 }

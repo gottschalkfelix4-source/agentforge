@@ -4,6 +4,10 @@
 // (project, container port). First request must carry `?__vibe_pv=<token>`; the proxy then sets a
 // slot cookie and redirects to the clean URL. Traffic goes app → wsd `/proxy/<port>/…` → 127.0.0.1:<port>.
 // Subdomain mode: `https://p<slot>.<PREVIEW_DOMAIN>` routed on the main port.
+// Host mode: one extra hostname (PREVIEW_HOST) for all slots, routed on the main port; the slot of a request
+// comes from the cookie the last token set, so a browser shows one preview at a time.
+
+export type PreviewMode = 'port' | 'subdomain' | 'host';
 
 export interface PreviewSlot {
   slot: number;
@@ -12,8 +16,10 @@ export interface PreviewSlot {
   port: number;
   /** Port mode: host port the browser connects to (same hostname as the app). */
   hostPort: number | null;
-  /** Subdomain mode: full origin, e.g. https://p3.preview.example.com */
+  /** Subdomain/host mode: full origin, e.g. https://p3.preview.example.com or https://preview.example.com */
   origin: string | null;
+  /** Host mode: all slots share one origin, so a browser may only have one preview loaded at a time. */
+  exclusive: boolean;
   /** One-time token to append as `?__vibe_pv=` on the first load. */
   token: string;
   createdAt: string;

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, CloudDownload, DatabaseBackup, Download, RefreshCw, Timer, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import type { PreviewMode } from '@vibe/shared';
 import { request } from '@/lib/api';
 import { useMe, useSystem } from '@/lib/queries';
 import { errorMessage } from '@/lib/utils';
@@ -49,8 +50,9 @@ interface SystemDetails {
   dataDir: string;
   hostDataPath: string;
   inContainer: boolean;
-  previewMode: 'port' | 'subdomain';
+  previewMode: PreviewMode;
   previewDomain: string | null;
+  previewHost: string | null;
   secretKeyFromEnv: boolean;
   docker: { ok: boolean; error: string | null };
   workspaceImage: ImageInfo;
@@ -182,7 +184,11 @@ function StatusSection() {
                     )}
                   </Row>
                   <Row label="Live-Preview">
-                    {d.previewMode === 'subdomain' ? `Subdomain (*.${d.previewDomain ?? '?'})` : 'Ports'}
+                    {d.previewMode === 'subdomain'
+                      ? `Subdomain (*.${d.previewDomain ?? '?'})`
+                      : d.previewMode === 'host'
+                        ? `Eigene Adresse (${d.previewHost ?? '?'})`
+                        : 'Ports'}
                   </Row>
                   <Row label="Secret-Key" ok={d.secretKeyFromEnv}>
                     {d.secretKeyFromEnv ? 'aus AGENTFORGE_SECRET_KEY' : 'Datei secret.key im Datenverzeichnis'}

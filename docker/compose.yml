@@ -47,7 +47,8 @@ services:
       PORT: "8080"
       # Optional (see docs/installation.md):
       WORKSPACE_IDLE_MINUTES: ${WORKSPACE_IDLE_MINUTES:-0}   # auto-stop idle workspaces, 0 = off
-      PREVIEW_MODE: ${PREVIEW_MODE:-port}                    # port | subdomain
+      PREVIEW_HOST: ${PREVIEW_HOST:-}                        # behind a reverse proxy: e.g. preview.example.com
+      PREVIEW_MODE: ${PREVIEW_MODE:-}                        # port | host | subdomain (empty: host if PREVIEW_HOST, else port)
       PREVIEW_DOMAIN: ${PREVIEW_DOMAIN:-}                    # e.g. preview.example.com (subdomain mode)
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}                # own GitHub OAuth app (device flow)
       AGENTFORGE_SECURE_COOKIES: ${AGENTFORGE_SECURE_COOKIES:-0}         # 1 when only reached via HTTPS

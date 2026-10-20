@@ -45,6 +45,22 @@ one port per slot, on the same `HOST` as the main server. The iframe loads
 already publish `7100-7119`. If you change `PREVIEW_PORT_START`/`PREVIEW_PORT_COUNT`, change the published range
 too. Ports that cannot be bound are logged and skipped.
 
+### Host mode
+
+```
+PREVIEW_HOST=preview.example.com     # PREVIEW_MODE=host is implied (also over an explicit "port")
+```
+
+One extra hostname for all slots, proxied (with WebSocket upgrades) to the main app port like the app itself –
+a normal certificate is enough. Every request whose `Host` is `PREVIEW_HOST` (any port) is handled by the
+preview proxy before any app route. Since all slots share one origin, the slot comes from the request: the
+token of the first request names it (`SlotTable.tokenSlot`), and the token exchange also sets
+`vibe_pv_active=<slot>` next to the slot cookie; later requests and upgrades follow that cookie (and still need
+the matching, signed `vibe_pv_<slot>`). `PreviewSlot.origin` is `https://preview.example.com`,
+`PreviewSlot.exclusive` is `true`: the panel only keeps the visible tab's frame loaded and reloads a tab when it
+is shown again. Two previews open at once in one browser (another browser tab, "open in new tab") switch the
+shared origin to whichever loaded last. For local tests `PREVIEW_HOST=preview.localhost:8787` works.
+
 ### Subdomain mode
 
 ```
@@ -66,7 +82,8 @@ For local tests `PREVIEW_DOMAIN=preview.localhost:8787` works (browsers resolve 
   are rejected). Still, cookies are not isolated by port. For untrusted code prefer **subdomain mode** on a
   separate registrable domain.
 * When the app is served over HTTPS by a reverse proxy, port mode would need TLS on the preview ports as well
-  (mixed content is blocked). Use subdomain mode behind TLS.
+  (mixed content is blocked). Use host or subdomain mode behind TLS. The panel takes the scheme of the
+  preview origin from the page itself, so a proxy that is not trusted for `X-Forwarded-Proto` still works.
 * If the preview domain is a different *site* than the app, the slot cookie is set `SameSite=None; Secure`
   (HTTPS only); browsers that block third-party cookies may then refuse it.
 * Slots are in memory; a server restart invalidates open previews – the panel reloads them automatically.

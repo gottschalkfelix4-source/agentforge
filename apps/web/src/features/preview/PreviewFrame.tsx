@@ -1,9 +1,21 @@
 import * as React from 'react';
-import { AlertTriangle, RotateCw } from 'lucide-react';
+import { AlertTriangle, Info, RotateCw, X } from 'lucide-react';
 import { cn, errorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { frameUrl, previewApi } from './api';
 import { frames, usePreviewLive, usePreviewTabs, type DeviceKind, type PreviewTab } from './store';
+
+const HTTPS_PORT_HINT_KEY = 'vibe-preview-https-port-hint';
+
+/** Port mode serves plain HTTP on 7100…; behind an HTTPS reverse proxy those ports are usually not reachable. */
+function showHttpsPortHint(): boolean {
+  if (window.location.protocol !== 'https:') return false;
+  try {
+    return localStorage.getItem(HTTPS_PORT_HINT_KEY) !== 'dismissed';
+  } catch {
+    return true;
+  }
+}
 
 const DEVICE_SIZE: Record<Exclude<DeviceKind, 'desktop'>, { width: number; height: number }> = {
   tablet: { width: 768, height: 1024 },
@@ -29,8 +41,20 @@ export function PreviewFrame({
     loading: true,
     error: null,
   });
+  const [hostPort, setHostPort] = React.useState<number | null>(null);
+  const [portHint, setPortHint] = React.useState(showHttpsPortHint);
+  // Tabs load once first shown. With a shared preview origin (host mode) the browser can only show one
+  // slot at a time, so hidden tabs drop their frame and reload when shown again.
+  const [seen, setSeen] = React.useState(visible);
+  const [exclusive, setExclusive] = React.useState(false);
+  if (visible && !seen) setSeen(true);
+  const active = visible || (seen && !exclusive);
 
   React.useEffect(() => {
+    if (!active) {
+      setState((s) => ({ ...s, src: null, loading: false, error: null }));
+      return;
+    }
     let cancelled = false;
     const cur = usePreviewTabs.getState().tabs[projectId]?.find((t) => t.id === tab.id);
     if (!cur) return;
@@ -40,6 +64,8 @@ export function PreviewFrame({
     previewApi.open(projectId, cur.port).then(
       (slot) => {
         if (cancelled) return;
+        setHostPort(slot.hostPort);
+        setExclusive(slot.exclusive);
         setState((s) => ({ src: frameUrl(slot, path), key: s.key + 1, loading: true, error: null }));
       },
       (err) => {
@@ -49,7 +75,7 @@ export function PreviewFrame({
     return () => {
       cancelled = true;
     };
-  }, [projectId, tab.id, nonce]);
+  }, [projectId, tab.id, nonce, active]);
 
   const setRef = React.useCallback(
     (el: HTMLIFrameElement | null) => {
@@ -101,6 +127,31 @@ export function PreviewFrame({
           </div>
         )}
       </div>
+      {hostPort !== null && portHint && (
+        <div className="absolute inset-x-2 bottom-2 flex items-start gap-2 rounded-lg border border-border bg-panel/95 p-2.5 text-xs text-muted-foreground shadow-lg">
+          <Info className="mt-0.5 size-3.5 shrink-0 text-brand" />
+          <div className="min-w-0 flex-1">
+            Leer oder Verbindungsfehler? Im Port-Modus läuft die Vorschau über Port {hostPort} (unverschlüsselt). Hinter
+            einem HTTPS-Reverse-Proxy ist dieser Port meist nicht erreichbar – dann eine eigene Vorschau-Adresse
+            einrichten (<code>PREVIEW_HOST</code>, siehe docs/installation.md).
+          </div>
+          <button
+            type="button"
+            aria-label="Hinweis ausblenden"
+            className="shrink-0 rounded p-0.5 hover:bg-muted"
+            onClick={() => {
+              setPortHint(false);
+              try {
+                localStorage.setItem(HTTPS_PORT_HINT_KEY, 'dismissed');
+              } catch {
+                /* storage blocked */
+              }
+            }}
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
       <style>{'@keyframes vibe-pv-load{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}'}</style>
     </div>
   );

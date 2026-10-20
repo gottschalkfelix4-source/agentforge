@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import type { PreviewMode } from '@vibe/shared';
 import { parseTrustProxy } from './trust-proxy.js';
 
 const env = process.env;
@@ -14,6 +15,25 @@ for (const [key, value] of Object.entries(env)) {
 
 /** True when the app itself runs inside a container (then it reaches workspaces via the docker network). */
 const inContainer = existsSync('/.dockerenv') || env.VIBE_IN_CONTAINER === '1';
+
+/** "preview.example.com" from what users paste: scheme, path and trailing dots are dropped, case folded. */
+export function normalizePreviewHost(raw: string | undefined): string | null {
+  const host = (raw ?? '')
+    .trim()
+    .replace(/^[a-z]+:\/\//i, '')
+    .replace(/\/.*$/, '')
+    .replace(/\.+$/, '')
+    .toLowerCase();
+  return host || null;
+}
+
+/** PREVIEW_HOST alone is enough: it wins over the default "port" (templates often preset PREVIEW_MODE=port). */
+export function previewMode(mode: string | undefined, host: string | null): PreviewMode {
+  if (mode === 'subdomain') return 'subdomain';
+  return host || mode === 'host' ? 'host' : 'port';
+}
+
+const previewHost = normalizePreviewHost(env.PREVIEW_HOST);
 
 const dataDir = path.resolve(env.VIBE_DATA_DIR ?? path.join(process.cwd(), '.data'));
 
@@ -49,9 +69,13 @@ export const config = {
   secureCookies: env.VIBE_SECURE_COOKIES === '1',
   /** Whose X-Forwarded-* headers to believe (Fastify `trustProxy`), see trust-proxy.ts. */
   trustProxy: parseTrustProxy(env.VIBE_TRUST_PROXY, inContainer),
-  /** Live preview routing: "port" (default, no DNS needed) or "subdomain" (needs wildcard DNS). */
-  previewMode: (env.PREVIEW_MODE === 'subdomain' ? 'subdomain' : 'port') as 'port' | 'subdomain',
+  /**
+   * Live preview routing: "port" (default, no DNS needed), "host" (one extra hostname, PREVIEW_HOST alone
+   * selects it) or "subdomain" (needs wildcard DNS).
+   */
+  previewMode: previewMode(env.PREVIEW_MODE, previewHost),
   previewDomain: env.PREVIEW_DOMAIN ?? null,
+  previewHost,
   previewPortStart: Number(env.PREVIEW_PORT_START ?? 7100),
   previewPortCount: Number(env.PREVIEW_PORT_COUNT ?? 20),
   /** OAuth App client id for the GitHub device flow (a public value; can be overridden). */

@@ -105,6 +105,12 @@ export class SlotTable {
     return token;
   }
 
+  /** Slot a (not yet consumed, unexpired) token was issued for – host mode routes the first request by it. */
+  tokenSlot(token: string): number | null {
+    const e = this.tokens.get(token);
+    return e && e.expires >= this.now() ? e.slot : null;
+  }
+
   /** Consumes a token; valid only for the slot (and its current occupant) it was issued for. */
   consumeToken(token: string, slot: number): boolean {
     const e = this.tokens.get(token);

@@ -4,7 +4,7 @@ import net from 'node:net';
 import type { Duplex } from 'node:stream';
 import { PREVIEW_INJECT_PATH, PREVIEW_QUERY_TOKEN, type PreviewSlot } from '@vibe/shared';
 import type { Config } from '../config.js';
-import { PV_COOKIE_MAX_AGE_MS, getCookie, previewCookieName, signPreviewCookie, verifyPreviewCookie } from './cookies.js';
+import { PV_ACTIVE_COOKIE, PV_COOKIE_MAX_AGE_MS, getCookie, previewCookieName, signPreviewCookie, verifyPreviewCookie } from './cookies.js';
 import { forwardRequestHeaders, transformResponseHeaders } from './headers.js';
 import { HtmlInjector, INJECT_SCRIPT, INJECT_TAG, shouldInject } from './inject.js';
 import { SlotTable, type SlotEntry } from './slots.js';
@@ -83,7 +83,7 @@ function requestProto(req: http.IncomingMessage): Proto {
 
 /**
  * Live preview proxy. Slots map (project, container port) to a host port (port mode) or a subdomain
- * (`p<slot>.<PREVIEW_DOMAIN>`). Traffic: browser → here → wsd `/proxy/<port>/…` → 127.0.0.1:<port>.
+ * (`p<slot>.<PREVIEW_DOMAIN>`) or a shared hostname (host mode, PREVIEW_HOST). Traffic: browser → here → wsd `/proxy/<port>/…` → 127.0.0.1:<port>.
  */
 export class PreviewService {
   readonly slots: SlotTable;
@@ -93,7 +93,7 @@ export class PreviewService {
   private readonly agent = new http.Agent({ keepAlive: true, keepAliveMsecs: 10_000 });
 
   constructor(
-    private readonly cfg: Pick<Config, 'previewMode' | 'previewDomain' | 'previewPortStart' | 'previewPortCount' | 'host'>,
+    private readonly cfg: Pick<Config, 'previewMode' | 'previewDomain' | 'previewHost' | 'previewPortStart' | 'previewPortCount' | 'host'>,
     private readonly resolveTarget: TargetResolver,
     private readonly log: Logger,
     private readonly onChange: (projectId: string) => void,
@@ -104,13 +104,19 @@ export class PreviewService {
   // ---- slots API ------------------------------------------------------------
 
   private dto(entry: SlotEntry, proto: Proto): PreviewSlot {
-    const sub = this.cfg.previewMode === 'subdomain';
+    const mode = this.cfg.previewMode;
     return {
       slot: entry.slot,
       projectId: entry.projectId,
       port: entry.port,
-      hostPort: sub ? null : this.cfg.previewPortStart + entry.slot,
-      origin: sub ? `${proto}://p${entry.slot}.${this.cfg.previewDomain}` : null,
+      hostPort: mode === 'port' ? this.cfg.previewPortStart + entry.slot : null,
+      origin:
+        mode === 'subdomain'
+          ? `${proto}://p${entry.slot}.${this.cfg.previewDomain}`
+          : mode === 'host'
+            ? `${proto}://${this.cfg.previewHost}`
+            : null,
+      exclusive: mode === 'host',
       token: this.slots.issueToken(entry.slot),
       createdAt: entry.createdAt,
     };
@@ -118,6 +124,7 @@ export class PreviewService {
 
   get available(): boolean {
     if (this.cfg.previewMode === 'subdomain') return !!this.cfg.previewDomain;
+    if (this.cfg.previewMode === 'host') return !!this.cfg.previewHost;
     return this.slots.usable > 0;
   }
 
@@ -181,6 +188,34 @@ export class PreviewService {
       const slot = Number(m[1]);
       return slot < this.slots.count ? slot : null;
     };
+    this.intercept(server, match);
+    this.log.info(`Vorschau über Subdomains p<slot>.${this.cfg.previewDomain}`);
+  }
+
+  /**
+   * Host mode: every request on PREVIEW_HOST is a preview request. All slots share that origin; the first
+   * request carries a token naming its slot, later ones follow the `vibe_pv_active` cookie it set.
+   */
+  attachHost(server: http.Server) {
+    const host = (this.cfg.previewHost ?? '').replace(/:\d+$/, '');
+    if (!host) {
+      this.log.warn('PREVIEW_MODE=host, aber PREVIEW_HOST ist nicht gesetzt – Vorschau deaktiviert.');
+      return;
+    }
+    this.intercept(server, (req) => {
+      if (String(req.headers.host ?? '').toLowerCase().replace(/:\d+$/, '') !== host) return null;
+      const token = stripTokenParam(req.url ?? '/').token;
+      const fromToken = token === null ? null : this.slots.tokenSlot(token);
+      if (fromToken !== null) return fromToken;
+      const active = Number(getCookie(req.headers.cookie, PV_ACTIVE_COOKIE) ?? NaN);
+      // -1: ours, but no slot yet → "not signed in" page, the panel then retries with a fresh token.
+      return Number.isInteger(active) && active >= 0 && active < this.slots.count ? active : -1;
+    });
+    this.log.info(`Vorschau über ${this.cfg.previewHost}`);
+  }
+
+  /** Hands requests/upgrades `match` claims (returns a slot) to the preview proxy before Fastify sees them. */
+  private intercept(server: http.Server, match: (req: http.IncomingMessage) => number | null) {
     const requestListeners = server.listeners('request') as ((req: http.IncomingMessage, res: http.ServerResponse) => void)[];
     server.removeAllListeners('request');
     server.on('request', (req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -195,7 +230,6 @@ export class PreviewService {
       if (slot !== null) return void this.handleUpgrade(req, socket, head, slot, requestProto(req));
       for (const l of upgradeListeners) l.call(server, req, socket, head);
     });
-    this.log.info(`Vorschau über Subdomains p<slot>.${this.cfg.previewDomain}`);
   }
 
   async close() {
@@ -226,6 +260,17 @@ export class PreviewService {
     return verifyPreviewCookie(this.secret, value, { slot: entry.slot, projectId: entry.projectId, port: entry.port });
   }
 
+  private cookie(name: string, value: string, proto: Proto): string {
+    const secure = proto === 'https';
+    // Subdomain/host mode: the preview may be another site than the app → the iframe only sends None cookies.
+    const sameSite = this.cfg.previewMode !== 'port' && secure ? 'None' : 'Lax';
+    return `${name}=${value}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${Math.floor(PV_COOKIE_MAX_AGE_MS / 1000)}${secure ? '; Secure' : ''}`;
+  }
+
+  private activeCookie(slot: number, proto: Proto): string[] {
+    return this.cfg.previewMode === 'host' ? [this.cookie(PV_ACTIVE_COOKIE, String(slot), proto)] : [];
+  }
+
   private publicOrigin(req: http.IncomingMessage, proto: Proto): string {
     return `${proto}://${req.headers.host ?? 'localhost'}`;
   }
@@ -243,6 +288,9 @@ export class PreviewService {
       return;
     }
 
+    if (slot < 0) {
+      return sendPage(res, 401, statusPage('Nicht angemeldet', 'Diese Vorschau ist nur über Agentforge erreichbar. Öffne sie dort erneut.', { authRequired: true }));
+    }
     const entry = this.slots.get(slot);
     if (!entry) {
       return sendPage(res, 404, statusPage('Vorschau nicht aktiv', 'Diese Vorschau ist nicht (mehr) aktiv. Öffne sie erneut in Agentforge.', { authRequired: true }));
@@ -251,20 +299,24 @@ export class PreviewService {
     const { path, token } = stripTokenParam(rawUrl);
     if (token !== null) {
       if (this.slots.consumeToken(token, slot)) {
-        const secure = proto === 'https';
-        const sameSite = this.cfg.previewMode === 'subdomain' && secure ? 'None' : 'Lax';
         const value = signPreviewCookie(this.secret, { slot, projectId: entry.projectId, port: entry.port });
         res.writeHead(302, {
           location: path || '/',
           'cache-control': 'no-store',
-          'set-cookie': `${previewCookieName(slot)}=${value}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${Math.floor(PV_COOKIE_MAX_AGE_MS / 1000)}${secure ? '; Secure' : ''}`,
+          'set-cookie': [this.cookie(previewCookieName(slot), value, proto), ...this.activeCookie(slot, proto)],
           'content-length': 0,
         });
         res.end();
         return;
       }
       if (this.cookieValid(req, entry)) {
-        res.writeHead(302, { location: path || '/', 'cache-control': 'no-store', 'content-length': 0 });
+        const active = this.activeCookie(slot, proto);
+        res.writeHead(302, {
+          location: path || '/',
+          'cache-control': 'no-store',
+          ...(active.length ? { 'set-cookie': active } : {}),
+          'content-length': 0,
+        });
         res.end();
         return;
       }

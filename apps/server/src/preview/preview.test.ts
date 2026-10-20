@@ -13,6 +13,7 @@ import {
 } from './cookies.js';
 import { forwardRequestHeaders, transformResponseHeaders } from './headers.js';
 import { HtmlInjector, INJECT_TAG, injectHtml, relaxCsp, shouldInject } from './inject.js';
+import { normalizePreviewHost, previewMode } from '../config.js';
 import { PreviewService, stripTokenParam } from './service.js';
 import { SlotTable } from './slots.js';
 
@@ -254,7 +255,7 @@ describe('PreviewService (port mode) end-to-end', () => {
     await new Promise<void>((r) => wsd.listen(0, '127.0.0.1', r));
     const wsdPort = (wsd.address() as AddressInfo).port;
     service = new PreviewService(
-      { previewMode: 'port', previewDomain: null, previewPortStart: start, previewPortCount: 2, host: '127.0.0.1' },
+      { previewMode: 'port', previewDomain: null, previewHost: null, previewPortStart: start, previewPortCount: 2, host: '127.0.0.1' },
       async () => ({ host: '127.0.0.1', port: wsdPort, token: 'wsd-token' }),
       { info: () => undefined, warn: () => undefined },
       () => undefined,
@@ -308,5 +309,89 @@ describe('PreviewService (port mode) end-to-end', () => {
 
     const noCookie = new WebSocket(`ws://127.0.0.1:${slot.hostPort}/hmr`);
     await expect(new Promise((resolve, reject) => { noCookie.on('open', resolve); noCookie.on('error', reject); })).rejects.toThrow(/401/);
+  });
+});
+
+describe('preview host config', () => {
+  it('normalizes what users paste and selects host mode by itself', () => {
+    expect(normalizePreviewHost(' https://Preview.Example.com/ ')).toBe('preview.example.com');
+    expect(normalizePreviewHost('preview.localhost:8787')).toBe('preview.localhost:8787');
+    expect(normalizePreviewHost('')).toBeNull();
+    expect(previewMode(undefined, 'preview.example.com')).toBe('host');
+    expect(previewMode('port', 'preview.example.com')).toBe('host');
+    expect(previewMode(undefined, null)).toBe('port');
+    expect(previewMode('subdomain', 'preview.example.com')).toBe('subdomain');
+  });
+});
+
+describe('PreviewService (host mode) end-to-end', () => {
+  let wsd: http.Server;
+  let app: http.Server;
+  let appPort: number;
+  let service: PreviewService;
+
+  /** Raw request with a custom Host header (fetch does not allow setting it). */
+  function get(path: string, host: string, cookie?: string) {
+    return new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }>((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: appPort, path, headers: { host, ...(cookie ? { cookie } : {}) } }, (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (c: string) => (body += c));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  }
+  const cookiesOf = (h: http.IncomingHttpHeaders) => (h['set-cookie'] ?? []).map((c) => c.split(';')[0]!).join('; ');
+
+  beforeAll(async () => {
+    wsd = http.createServer((req, res) => {
+      if (req.headers.authorization !== 'Bearer wsd-token') return void res.writeHead(401).end();
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ url: req.url }));
+    });
+    await new Promise<void>((r) => wsd.listen(0, '127.0.0.1', r));
+    const wsdPort = (wsd.address() as AddressInfo).port;
+    app = http.createServer((_req, res) => res.end('app'));
+    await new Promise<void>((r) => app.listen(0, '127.0.0.1', r));
+    appPort = (app.address() as AddressInfo).port;
+    service = new PreviewService(
+      { previewMode: 'host', previewDomain: null, previewHost: 'preview.test', previewPortStart: 0, previewPortCount: 4, host: '127.0.0.1' },
+      async () => ({ host: '127.0.0.1', port: wsdPort, token: 'wsd-token' }),
+      { info: () => undefined, warn: () => undefined },
+      () => undefined,
+    );
+    service.attachHost(app);
+  });
+
+  afterAll(async () => {
+    await service.close();
+    app.close();
+    wsd.close();
+  });
+
+  it('routes by token, then by the active-slot cookie', async () => {
+    const a = service.open('proj-a', 3000, 'https');
+    const b = service.open('proj-b', 5173, 'https');
+    expect(a.origin).toBe('https://preview.test');
+    expect(a.exclusive).toBe(true);
+    expect(a.hostPort).toBeNull();
+
+    // other hosts are the normal app; the preview host needs a slot
+    expect((await get('/x', 'agentforge.test')).body).toBe('app');
+    expect((await get('/x', 'preview.test')).status).toBe(401);
+
+    const ra = await get(`/x?__vibe_pv=${a.token}`, 'preview.test');
+    expect(ra.status).toBe(302);
+    expect(ra.headers['set-cookie']!.join(' | ')).toMatch(new RegExp(`vibe_pv_active=${a.slot};.*SameSite=Lax`));
+    const jarA = cookiesOf(ra.headers);
+    expect(JSON.parse((await get('/x', 'preview.test:443', jarA)).body).url).toBe('/proxy/3000/x');
+
+    // opening B switches the shared origin over; A's slot cookie alone no longer matches the active slot
+    const rb = await get(`/y?__vibe_pv=${b.token}`, 'preview.test');
+    const jar = `${cookiesOf(rb.headers)}; ${jarA.split('; ')[0]}`;
+    expect(JSON.parse((await get('/y', 'preview.test', jar)).body).url).toBe('/proxy/5173/y');
+    expect((await get('/y', 'preview.test', `vibe_pv_active=${b.slot}; ${jarA.split('; ')[0]}`)).status).toBe(401);
   });
 });

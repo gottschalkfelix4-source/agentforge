@@ -79,7 +79,8 @@ Solange kein Admin existiert, erzeugt der Server einen einmaligen Setup-Token, s
 |---|---|---|
 | `WORKSPACE_IDLE_MINUTES` | `0` | Workspaces nach N Minuten ohne laufende Agent-Sitzung und ohne Terminal-Prozess stoppen (0 = aus). In der UI überschreibbar. |
 | `WORKSPACE_CPUS` / `WORKSPACE_MEMORY_MB` | `4` / `8192` | Limits je Workspace. |
-| `PREVIEW_MODE` | `port` | `port`: Previews auf `PREVIEW_PORT_START…+COUNT-1` (Standard 7100–7119). `subdomain`: über `https://p<N>.<PREVIEW_DOMAIN>` am Hauptport. |
+| `PREVIEW_HOST` | – | Eine eigene Adresse für alle Previews, z. B. `preview.example.com` – der einfachste Weg hinter einem Reverse Proxy (siehe unten). Schaltet `PREVIEW_MODE` automatisch auf `host`. |
+| `PREVIEW_MODE` | `port` (`host`, wenn `PREVIEW_HOST` gesetzt ist) | `port`: Previews auf `PREVIEW_PORT_START…+COUNT-1` (Standard 7100–7119). `host`: über `https://<PREVIEW_HOST>` am Hauptport. `subdomain`: über `https://p<N>.<PREVIEW_DOMAIN>` am Hauptport. |
 | `PREVIEW_DOMAIN` | – | Nur für `subdomain`, z. B. `preview.example.com`. |
 | `PREVIEW_PORT_START` / `PREVIEW_PORT_COUNT` | `7100` / `20` | Port-Bereich (muss mit dem veröffentlichten Bereich übereinstimmen). |
 | `GITHUB_CLIENT_ID` | – | Client-ID einer eigenen GitHub-OAuth-App (Device Flow aktiviert). Alternativ in der UI. |
@@ -160,10 +161,27 @@ location / {
 }
 ```
 
-### Previews über Subdomains (Wildcard)
+### Previews hinter dem Reverse Proxy
 
-Im Port-Modus sind Previews unter `http(s)://<host>:7100…7119` erreichbar – hinter einem Reverse Proxy
-muss man diese Ports zusätzlich freigeben. Eleganter ist der Subdomain-Modus:
+Im Port-Modus lädt die Vorschau `http(s)://<host>:7100…7119`. Hinter einem HTTPS-Reverse-Proxy sind diese
+Ports nicht erreichbar (und sprechen kein TLS) – die Vorschau bleibt dann leer. Einfachste Lösung: **eine**
+zusätzliche Adresse für alle Previews.
+
+1. DNS: `preview.example.com` → IP des Reverse Proxys (entfällt, wenn schon ein Wildcard-Eintrag
+   `*.example.com` existiert).
+2. Proxy: neuer Host `preview.example.com` → `http://<agentforge>:8080` – also dasselbe Ziel wie Agentforge
+   selbst –, WebSockets an, normales Let's-Encrypt-Zertifikat (in NPM: *Proxy Hosts → Add*, *Websockets
+   Support* an, Tab *SSL → Request a new SSL Certificate*).
+3. Agentforge: `PREVIEW_HOST=preview.example.com` setzen und den Container neu starten.
+
+Am besten eine Subdomain **derselben** Domain wie Agentforge nehmen (Agentforge `agentforge.example.com`,
+Vorschau `preview.example.com`): Bei einer fremden Domain blockieren manche Browser das Vorschau-Cookie als
+Drittanbieter-Cookie. Einschränkung: Alle Previews teilen sich die Adresse, ein Browser zeigt deshalb immer
+nur **eine** Vorschau gleichzeitig (beim Tab-Wechsel lädt die Vorschau neu).
+
+#### Mehrere Previews parallel: Subdomain-Modus (Wildcard)
+
+Jede Vorschau bekommt eine eigene Subdomain `p<N>.preview.example.com` – aufwendiger einzurichten:
 
 1. DNS: Wildcard-Eintrag `*.preview.example.com` → IP des Reverse Proxys (bei Cloudflare nur mit einem
    Plan, der Wildcard-Proxying erlaubt, sonst „DNS only“).

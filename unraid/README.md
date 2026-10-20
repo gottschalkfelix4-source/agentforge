@@ -39,7 +39,8 @@ Eine der beiden Varianten:
 | Preview Ports | `7100-7119` – Host- und Container-Bereich müssen identisch sein |
 | Workspace Idle Stop | z. B. `60`, um inaktive Workspaces nach einer Stunde zu stoppen (0 = aus) |
 
-Erweitert: `PREVIEW_MODE`/`PREVIEW_DOMAIN` (Subdomain-Previews hinter Reverse Proxy), `GITHUB_CLIENT_ID`
+Erweitert: `PREVIEW_HOST` (Previews hinter Reverse Proxy über eine eigene Adresse wie
+`preview.example.com`), `PREVIEW_MODE`/`PREVIEW_DOMAIN` (Wildcard-Subdomain-Previews), `GITHUB_CLIENT_ID`
 (eigene OAuth-App), `AGENTFORGE_SECURE_COOKIES=1` (nur HTTPS), CPU/RAM je Workspace, `PUID`/`PGID`
 (99/100 = `nobody:users`).
 
