@@ -35,19 +35,31 @@ Projektspezifische Regeln gehören oberhalb davon.
    Browser (Playwright). Behebe gefundene Fehler sofort und prüfe erneut.
 7. **Fehler sind kein Grund aufzuhören.** Lies die Fehlermeldung, behebe die Ursache, führe den Befehl erneut aus.
    Scheitert derselbe Ansatz dreimal, nimm einen anderen. Gib erst auf, wenn dir kein sinnvoller Weg mehr bleibt.
-8. **Große Aufgaben in Schritte zerlegen** (Unteraufgaben oder Todo-Liste, siehe unten) und alle Schritte nacheinander
-   abarbeiten und abhaken, ohne zwischendurch anzuhalten.
+8. **Erst auf dem Board planen, dann coden** (siehe „Planung auf dem Board“) – bei jeder Anfrage, die mehr ist als eine
+   Frage oder eine Kleinigkeit. Danach alle Schritte nacheinander abarbeiten und abhaken, ohne zwischendurch anzuhalten.
 9. **Board-Status aktuell halten** (siehe „Projekt-Board“) – der Nutzer kann ihn nicht selbst ändern.
 10. **Kurzer Abschluss:** Was wurde geändert, wie wurde es geprüft, was ist noch offen (offene Punkte als Aufgabe anlegen).
 
+### Planung auf dem Board – Pflicht vor dem ersten Code
+Der Nutzer verfolgt deine Arbeit in den Reitern **Aufgaben** und **Roadmap**. Plane deshalb jede Anfrage dort, bevor du
+Dateien änderst – auch im normalen Chat ohne Board-Aufgabe:
+1. \`project_overview\` aufrufen (bzw. \`current_task\`, wenn die Sitzung vom Board gestartet wurde).
+2. **Größeres Vorhaben** (neue App, neues Feature mit mehreren Teilen, Umbau): zuerst die **Roadmap** anlegen – je Phase
+   ein Meilenstein mit \`milestone_create\` (z. B. „MVP“, „Integrationen“, „Feinschliff“), dann je Arbeitspaket eine
+   Aufgabe mit \`task_create\` (\`milestoneId\`, \`subtasks\` = die konkreten Schritte). Passende offene Meilensteine und
+   Aufgaben wiederverwenden statt doppelt anlegen.
+3. **Kleinere Anfrage:** eine Aufgabe mit \`task_create\` und \`subtasks\` (Schritte), passendem Meilenstein falls vorhanden.
+4. Die Aufgabe, an der du jetzt arbeitest, auf \`in_progress\` setzen – erst dann mit dem Code beginnen.
+Ohne Board-Eintrag bleiben nur Fragen, Erklärungen und Kleinigkeiten (z. B. ein Tippfehler).
+
 ### Ablauf einer Aufgabe
-1. **Verstehen:** Anfrage lesen. Bei Board-Arbeit \`current_task\` bzw. \`project_overview\` aufrufen. Relevante Dateien
-   suchen (\`rg\`, \`ls\`) und lesen. Befehle für Build/Test findest du in dieser Datei, in \`package.json\`, \`Makefile\`,
+1. **Verstehen:** Anfrage lesen, \`project_overview\` bzw. \`current_task\` aufrufen. Relevante Dateien suchen (\`rg\`,
+   \`ls\`) und lesen. Befehle für Build/Test findest du in dieser Datei, in \`package.json\`, \`Makefile\`,
    \`pyproject.toml\` oder der README.
-2. **Planen:** Schritte als Unteraufgaben (\`subtasks_add\`) oder in der Todo-Liste anlegen; Aufgabe auf \`in_progress\`.
-3. **Umsetzen:** Schritt für Schritt ändern und jeden erledigten Schritt sofort abhaken.
+2. **Planen:** auf dem Board, wie oben beschrieben (Meilensteine, Aufgaben, Unteraufgaben); Aufgabe auf \`in_progress\`.
+3. **Umsetzen:** Schritt für Schritt ändern und jede erledigte Unteraufgabe sofort mit \`subtask_update\` abhaken.
 4. **Prüfen:** Build, Tests, Linter, bei UI Dev-Server + Browser. Fehler beheben, erneut prüfen.
-5. **Abschließen:** Aufgabe auf \`review\`, dem Nutzer kurz berichten.
+5. **Abschließen:** Aufgabe auf \`review\`, nächste Aufgabe des Plans auf \`in_progress\` oder dem Nutzer kurz berichten.
 
 ### Workspace
 - Jedes Projekt läuft in einem eigenen Linux-Container (Debian) als Benutzer \`coder\` – **ohne root/sudo**.
@@ -112,10 +124,11 @@ Projektspezifische Regeln gehören oberhalb davon.
 - Hat eine Aufgabe bereits Unteraufgaben, **sind das deine Todos**: Aufgabe auf \`in_progress\` setzen und jede
   Unteraufgabe mit \`subtask_update\` abhaken, sobald sie erledigt ist. Führe dieselben Schritte nicht zusätzlich in
   deiner eigenen Todo-Liste.
-- Für Arbeit ohne Board-Aufgabe nutze die eigene Todo-Liste deines Agents (z. B. \`TodoWrite\` oder den Plan); auch sie
-  erscheint in der Todo-Leiste.
+- Die eigene Todo-Liste deines Agents (z. B. \`TodoWrite\` oder den Plan) ersetzt das Board nicht – nutze sie nur für
+  Kleinigkeiten ohne Board-Eintrag (siehe „Planung auf dem Board“).
 - Lege für Folgearbeiten, Bugs oder offene Punkte eigene Aufgaben an, statt sie nur im Chat zu erwähnen.
-- Ordne Aufgaben passenden Meilensteinen zu; neue Meilensteine nur nach Absprache.
+- Ordne jede Aufgabe einem passenden Meilenstein zu. Hat ein Vorhaben mehrere Phasen und es gibt noch keine passenden
+  Meilensteine, lege sie selbst an – die Roadmap soll den Plan zeigen.
 - Halte Architektur-Entscheidungen, wichtige Befehle und Erkenntnisse in Notizen fest.
 - Löschen ist über die Tools nicht möglich – bitte den Nutzer darum, falls etwas entfernt werden soll.
 - Aufgaben mit GitHub-Issue (\`githubIssue\`) werden mit GitHub synchronisiert.

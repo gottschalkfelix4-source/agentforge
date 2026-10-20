@@ -22,7 +22,7 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   {
     name: 'project_overview',
     description:
-      'Overview of the Agentforge project board: task counts per status, open milestones, pinned notes and — when this chat belongs to a board task — the current task. Call this first to understand planned work.',
+      'Overview of the Agentforge project board: task counts per status, open milestones, pinned notes and — when this chat belongs to a board task — the current task. Call this FIRST for every request, before changing any file, then plan the work on the board as `nextStep` in the result says (milestones for a roadmap, tasks with subtasks, current task to in_progress).',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -51,7 +51,8 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
   {
     name: 'task_create',
-    description: 'Create a task on the project board (e.g. to split up work or record follow-ups). Labels are created if missing.',
+    description:
+      'Create a task on the project board. Plan every non-trivial request with it before coding: one task per work package, with its steps as `subtasks`, a `milestoneId` and status in_progress for the one you start now. Also for follow-ups and bugs. Labels are created if missing.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -119,7 +120,8 @@ export const AGENT_TOOLS: AgentToolDef[] = [
   },
   {
     name: 'milestone_create',
-    description: 'Create a roadmap milestone.',
+    description:
+      'Create a roadmap milestone. For a larger project or feature, lay out the roadmap first: one milestone per phase (e.g. MVP, integrations, polish), then create the tasks with that milestoneId.',
     inputSchema: {
       type: 'object',
       properties: {

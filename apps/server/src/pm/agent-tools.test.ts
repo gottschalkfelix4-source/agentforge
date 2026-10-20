@@ -99,6 +99,30 @@ describe('agent tools', () => {
     expect(repo.sessionTaskIds(sid)).toEqual([t.id, t2.id]);
   });
 
+  it('tells the agent to plan on the board before coding', () => {
+    const p = project();
+    const sid = `s-plan-${p}`;
+    db.insert('agent_sessions', { id: sid, project_id: p, agent_id: 'codex', transport: 'acp', title: 'Chat', status: 'idle', created_at: nowIso(), updated_at: nowIso() });
+    type Overview = { nextStep: string };
+    // empty board: lay out a roadmap first
+    const first = tools.run(p, sid, 'project_overview', {}) as Overview;
+    expect(first.nextStep).toMatch(/keine Board-Aufgabe/);
+    expect(first.nextStep).toContain('milestone_create');
+    expect(first.nextStep).toContain('task_create');
+
+    const m = tools.run(p, sid, 'milestone_create', { title: 'MVP' }) as Obj;
+    expect((tools.run(p, sid, 'project_overview', {}) as Overview).nextStep).toMatch(/passenden offenen Meilenstein/);
+
+    // a bare task gets the missing planning steps listed
+    const bare = tools.run(p, sid, 'task_create', { title: 'Grundgerüst' }) as Obj;
+    expect(bare.nextStep).toMatch(/Meilenstein.*subtasks_add.*in_progress/);
+    const planned = tools.run(p, sid, 'task_create', { title: 'API', milestoneId: m.id, subtasks: ['Routen'], status: 'in_progress' }) as Obj;
+    expect(planned.nextStep).toBeUndefined();
+
+    // once the chat works on tasks, the overview points at them
+    expect((tools.run(p, sid, 'project_overview', {}) as Overview).nextStep).toMatch(/Aufgaben dieser Sitzung/);
+  });
+
   it('rejects unknown tools and reports no current task outside task runs', () => {
     const p = project();
     expect(() => tools.run(p, null, 'rm_rf', {})).toThrow(/Unbekanntes Tool/);

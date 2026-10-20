@@ -41,6 +41,38 @@ const taskDetail = (t: Task) => ({
   createdAt: t.createdAt,
 });
 
+/**
+ * What the agent should do next on the board. Small models skim the long AGENTS.md rules but do read tool results,
+ * so the planning duty is repeated where they look first (`project_overview`, `task_create`).
+ */
+function overviewNextStep(current: Task | null, sessionTasks: Task[], openMilestones: number): string {
+  if (current) {
+    if (current.column !== 'in_progress' && current.column !== 'review') return 'Setze die Aufgabe dieser Sitzung mit task_set_status auf in_progress, bevor du anfängst.';
+    if (!current.subtasks.length) return 'Lege die Schritte dieser Aufgabe mit subtasks_add als Unteraufgaben an und hake sie mit subtask_update ab.';
+    return SUBTASK_HINT;
+  }
+  if (sessionTasks.length) {
+    return 'Arbeite die Aufgaben dieser Sitzung (sessionTasks) ab: Unteraufgaben sofort abhaken, fertige Aufgaben auf review, die nächste auf in_progress. Neue Arbeit als weitere Aufgabe planen.';
+  }
+  const roadmap = openMilestones
+    ? 'Wähle einen passenden offenen Meilenstein oder lege für eine neue Phase einen an (milestone_create).'
+    : 'Bei einem größeren Vorhaben zuerst die Roadmap anlegen: je Phase ein Meilenstein mit milestone_create (z. B. MVP, Integrationen, Feinschliff).';
+  return (
+    'Diese Sitzung hat noch keine Board-Aufgabe. Ist die Anfrage mehr als eine Frage oder Kleinigkeit, plane sie JETZT, bevor du Dateien änderst: ' +
+    `1) ${roadmap} ` +
+    '2) Je Arbeitspaket eine Aufgabe mit task_create (milestoneId, subtasks = konkrete Schritte). ' +
+    '3) Die Aufgabe, mit der du beginnst, mit status in_progress anlegen bzw. per task_set_status setzen. Erst dann coden und jede Unteraufgabe mit subtask_update abhaken.'
+  );
+}
+
+function createdNextStep(t: Task, openMilestones: number): string | null {
+  const todo: string[] = [];
+  if (!t.milestoneId && openMilestones) todo.push('per task_update einem Meilenstein zuordnen');
+  if (!t.subtasks.length) todo.push('die Schritte mit subtasks_add als Unteraufgaben anlegen');
+  if (t.column !== 'in_progress') todo.push('mit task_set_status auf in_progress setzen, sobald du daran arbeitest');
+  return todo.length ? `Aufgabe angelegt. Noch: ${todo.join('; ')}.` : null;
+}
+
 const milestoneSummary = (m: Milestone) => ({
   id: m.id,
   title: m.title,
@@ -134,14 +166,17 @@ export class AgentTools {
         const tasks = this.repo.tasks(projectId);
         const counts = Object.fromEntries(TASK_COLUMNS.map((c) => [c, tasks.filter((t) => t.column === c).length]));
         const current = this.currentTask(projectId, sessionId);
+        const openMilestones = this.repo.milestones(projectId).filter((m) => m.state === 'open');
+        const linked = this.sessionTasks(projectId, sessionId);
         return {
+          nextStep: overviewNextStep(current, linked, openMilestones.length),
           tasksByStatus: counts,
           statuses: STATUS_LABEL,
-          openMilestones: this.repo.milestones(projectId).filter((m) => m.state === 'open').map(milestoneSummary),
+          openMilestones: openMilestones.map(milestoneSummary),
           inProgress: tasks.filter((t) => t.column === 'in_progress').map(taskSummary),
           pinnedNotes: this.repo.notes(projectId).filter((n) => n.pinned).map(noteSummary),
           currentTask: current ? taskDetail(current) : null,
-          sessionTasks: this.sessionTasks(projectId, sessionId).map(taskSummary),
+          sessionTasks: linked.map(taskSummary),
         };
       }
       case 'current_task': {
@@ -185,7 +220,9 @@ export class AgentTools {
         if (a.status === 'in_progress') this.link(sessionId, row.id);
         publishPm(projectId, 'task');
         if (a.labels?.length) publishPm(projectId, 'label');
-        return taskDetail(this.repo.task(row.id));
+        const created = this.repo.task(row.id);
+        const next = createdNextStep(created, this.repo.milestones(projectId).filter((m) => m.state === 'open').length);
+        return next ? { ...taskDetail(created), nextStep: next } : taskDetail(created);
       }
       case 'task_update': {
         const a = z

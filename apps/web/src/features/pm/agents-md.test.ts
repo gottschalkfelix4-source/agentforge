@@ -23,6 +23,9 @@ describe('AGENTS.md templates', () => {
     // Rules that keep (small) models working until the task is done.
     expect(t).toContain('Arbeite, bis die Aufgabe fertig ist');
     expect(t).toContain('Handeln statt ankündigen');
+    // Planning on the board (roadmap, tasks) is mandatory, also in plain chats.
+    expect(t).toContain('Planung auf dem Board – Pflicht vor dem ersten Code');
+    expect(t).not.toContain('neue Meilensteine nur nach Absprache');
   });
 
   it('appends the section to existing files without touching own content', () => {
