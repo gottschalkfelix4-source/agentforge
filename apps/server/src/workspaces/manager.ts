@@ -319,6 +319,9 @@ export class WorkspaceManager {
           this.setStatus(ws.project_id, 'none', 'Container wurde extern entfernt');
         } else if (info.State.Running) {
           if (!this.clients.get(ws.project_id)?.connected) {
+            // An app container recreated by an update (e.g. Unraid) is back on its template networks only and
+            // can no longer resolve the running workspaces – rejoin the workspace network first.
+            await this.orch.ensureNetwork().catch((err: Error) => this.log.warn(`Workspace-Netzwerk: ${err.message}`));
             await this.withLock(ws.project_id, () => this.connect(ws.project_id, ws.id, ws.container_id!));
           }
           if (ws.status !== 'running') this.setStatus(ws.project_id, 'running');

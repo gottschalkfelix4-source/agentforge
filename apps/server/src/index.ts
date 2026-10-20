@@ -8,6 +8,7 @@ import Fastify, { type FastifyError } from 'fastify';
 import { ZodError } from 'zod';
 import type { AppContext } from './app-context.js';
 import { Auth, AuthError, SESSION_COOKIE } from './auth.js';
+import { tolerateEmptyBodies } from './body-parsers.js';
 import { config } from './config.js';
 import { Db } from './db/index.js';
 import { Orchestrator } from './docker/orchestrator.js';
@@ -34,6 +35,8 @@ async function main() {
     trustProxy: config.trustProxy,
     bodyLimit: 25 * 1024 * 1024,
   });
+
+  tolerateEmptyBodies(app);
 
   const db = new Db(path.join(config.dataDir, 'db', 'vibe.sqlite'));
   const secrets = new SecretStore(db, config.dataDir, config.secretKey);
