@@ -49,6 +49,44 @@ beforeEach(() => {
   published.length = 0;
 });
 
+describe('SessionStore.ingest pricing', () => {
+  const pricing = { prompt: 0.000002, completion: 0.00001, cacheRead: 0.0000002, cacheWrite: null };
+  const priced = new Set<string>();
+  const pricedStore = new SessionStore(db, (row) => (priced.has(row.id) ? pricing : null));
+  const usage = (id: string) =>
+    db
+      .all<{ payload_json: string }>("SELECT payload_json FROM session_events WHERE session_id = ? AND type = 'usage' ORDER BY seq", id)
+      .map((r) => JSON.parse(r.payload_json) as Extract<AgentEvent, { type: 'usage' }>);
+
+  it('prices billed tokens, keeps a running total and replaces the agent cost', () => {
+    const id = newSession();
+    priced.add(id);
+    const spent = { input: 1000, cachedInput: 10_000, cacheWrite: 0, output: 500 };
+    expect(pricedStore.ingest('p1', id, rec(1, { type: 'usage', inputTokens: 1000, outputTokens: 500, spent }))).toBe(true);
+    // duplicates are not counted twice
+    expect(pricedStore.ingest('p1', id, rec(1, { type: 'usage', inputTokens: 1000, outputTokens: 500, spent }))).toBe(false);
+    pricedStore.ingest('p1', id, rec(2, { type: 'usage', contextUsed: 9000, costUsd: 4.2 }));
+    pricedStore.ingest('p1', id, rec(3, { type: 'usage', spent: { input: 0, cachedInput: 0, cacheWrite: 0, output: 1000 } }));
+    const [a, b, c] = usage(id);
+    expect(a!.spentUsd).toBeCloseTo(0.002 + 0.002 + 0.005);
+    expect(a!.costUsd).toBeCloseTo(0.009);
+    expect(a!.costEstimated).toBe(true);
+    expect(b).toEqual({ type: 'usage', contextUsed: 9000, costUsd: a!.costUsd, costEstimated: true });
+    expect(c!.costUsd).toBeCloseTo(0.019);
+    // a new store (server restart) continues from the persisted total
+    const restarted = new SessionStore(db, (row) => (priced.has(row.id) ? pricing : null));
+    restarted.ingest('p1', id, rec(4, { type: 'usage', spent: { input: 500, cachedInput: 0, cacheWrite: 0, output: 0 } }));
+    expect(usage(id)[3]!.costUsd).toBeCloseTo(0.02);
+  });
+
+  it('leaves unpriced sessions alone', () => {
+    const id = newSession();
+    const ev: AgentEvent = { type: 'usage', costUsd: 0.5, spent: { input: 1, cachedInput: 0, cacheWrite: 0, output: 1 } };
+    pricedStore.ingest('p1', id, rec(1, ev));
+    expect(usage(id)).toEqual([ev]);
+  });
+});
+
 describe('SessionStore.ingest', () => {
   it('is idempotent on (session_id, seq) and tracks last_seq', () => {
     const id = newSession();

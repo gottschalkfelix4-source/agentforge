@@ -12,6 +12,7 @@ import type {
   LoginRequest,
   MeResponse,
   ProjectWithWorkspace,
+  ModelCatalogEntry,
   Provider,
   ProviderInput,
   SetupRequest,
@@ -145,6 +146,7 @@ export const api = {
 
   // providers
   providers: () => request<Provider[]>('/providers'),
+  providerCatalog: (id: string) => request<ModelCatalogEntry[]>(`/providers/${encodeURIComponent(id)}/catalog`),
   createProvider: (body: ProviderInput) => request<Provider>('/providers', { method: 'POST', body }),
   updateProvider: (id: string, body: Partial<ProviderInput>) =>
     request<Provider>(`/providers/${encodeURIComponent(id)}`, { method: 'PATCH', body }),

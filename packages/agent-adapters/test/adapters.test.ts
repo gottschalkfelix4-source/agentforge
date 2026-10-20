@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AgentEvent } from '@vibe/shared';
-import { codexMcpArgs, RpcError, splitUnifiedDiff, startAgent, type AgentSessionHandle, type AgentStartOptions } from '../src/index.js';
+import { codexMcpArgs, RpcError, spentSince, splitUnifiedDiff, startAgent, turnTokens, type AgentSessionHandle, type AgentStartOptions } from '../src/index.js';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'adapters-test-')));
@@ -95,7 +95,7 @@ describe('AcpAdapter', () => {
     expect(fs.readFileSync(path.join(cwd, 'fake-out.txt'), 'utf8')).toBe('line1\nline2\nline3');
     expect(events.filter((e) => e.type === 'message.done' && e.role === 'assistant').map((e) => (e as { text: string }).text)).toContain('Gelesen: line2');
     expect(events).toContainEqual({ type: 'usage', contextUsed: 500, contextWindow: 1000, contextPercent: 50, costUsd: 0.01 });
-    expect(events).toContainEqual({ type: 'usage', inputTokens: 10, outputTokens: 20 });
+    expect(events).toContainEqual({ type: 'usage', inputTokens: 10, outputTokens: 20, spent: { input: 10, cachedInput: 0, cacheWrite: 0, output: 20 } });
   });
 
   describe('context usage', () => {
@@ -364,7 +364,15 @@ describe('CodexAppServerAdapter', () => {
     const diff = events.find((e) => e.type === 'diff.turn') as Extract<AgentEvent, { type: 'diff.turn' }>;
     expect(diff.files.map((f) => f.path)).toEqual(['src/a.ts', 'new.txt']);
     expect(events).toContainEqual(expect.objectContaining({ type: 'message.done', id: 'msg_1', role: 'assistant', text: 'Fertig!' }));
-    expect(events).toContainEqual({ type: 'usage', inputTokens: 200, outputTokens: 100, contextUsed: 300, contextWindow: 1000, contextPercent: 30 });
+    expect(events).toContainEqual({
+      type: 'usage',
+      inputTokens: 200,
+      outputTokens: 100,
+      contextUsed: 300,
+      contextWindow: 1000,
+      contextPercent: 30,
+      spent: { input: 200, cachedInput: 0, cacheWrite: 0, output: 100 },
+    });
     expect(stderr.find((l) => l.startsWith('turn/start'))).toContain('"approvalPolicy":"untrusted"');
   });
 
@@ -444,5 +452,32 @@ describe('RpcError', () => {
     expect(new RpcError(-32603, 'Internal error', { code: 7 }).message).toBe('Internal error: {"code":7}');
     expect(new RpcError(-32601, 'Method not found').message).toBe('Method not found');
     expect(new RpcError(-32603, 'failed: boom', 'boom').message).toBe('failed: boom');
+  });
+});
+
+describe('billable token deltas', () => {
+  const b = (inputTokens: number, cachedInputTokens: number, outputTokens: number) => ({
+    totalTokens: inputTokens + outputTokens,
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    reasoningOutputTokens: 0,
+  });
+
+  it('codex: growth of the thread totals, the latest request on the first report', () => {
+    expect(spentSince(null, b(5000, 1000, 300), b(1200, 1000, 50))).toEqual({ input: 200, cachedInput: 1000, cacheWrite: 0, output: 50 });
+    expect(spentSince(b(5000, 1000, 300), b(7000, 2500, 400), b(2000, 1500, 100))).toEqual({ input: 500, cachedInput: 1500, cacheWrite: 0, output: 100 });
+    expect(spentSince(b(5000, 1000, 300), b(5000, 1000, 300), b(2000, 1500, 100))).toBeNull();
+    // Totals that shrank (new thread): fall back to the latest request.
+    expect(spentSince(b(9000, 0, 900), b(100, 0, 10), b(100, 0, 10))).toEqual({ input: 100, cachedInput: 0, cacheWrite: 0, output: 10 });
+  });
+
+  it('acp: the turn usage with cache reads and writes', () => {
+    expect(turnTokens({ stopReason: 'end_turn', usage: { totalTokens: 0, inputTokens: 12, outputTokens: 80, cachedReadTokens: 9000, cachedWriteTokens: 400 } })).toEqual({
+      inputTokens: 12,
+      outputTokens: 80,
+      spent: { input: 12, cachedInput: 9000, cacheWrite: 400, output: 80 },
+    });
+    expect(turnTokens({ stopReason: 'end_turn' })).toBeNull();
   });
 });

@@ -67,6 +67,23 @@ export interface Provider {
   createdAt: string;
 }
 
+/** USD per token as the provider publishes it (OpenRouter `pricing`); null fields are unknown. */
+export interface ModelPricing {
+  prompt: number;
+  completion: number;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+}
+
+/** What a provider tells about one of its models (GET /api/providers/:id/catalog). */
+export interface ModelCatalogEntry {
+  id: string;
+  /** Provider's display name, e.g. "Anthropic: Claude Opus 4.1". */
+  name: string | null;
+  contextLength: number | null;
+  pricing: ModelPricing | null;
+}
+
 export interface ProviderInput {
   kind: ProviderKind;
   name: string;

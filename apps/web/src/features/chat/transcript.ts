@@ -20,6 +20,7 @@ import type {
   QuestionField,
   SessionEventRecord,
   SessionStatus,
+  SpentTokens,
   ToolKind,
   ToolStatus,
 } from '@vibe/shared';
@@ -113,11 +114,23 @@ export type TranscriptItem = UserItem | MessageItem | ToolItem | ApprovalItem | 
 export interface Usage {
   inputTokens?: number;
   outputTokens?: number;
+  /** Session total (agent-reported, or Agentforge's estimate from the model pricing when `costEstimated`). */
   costUsd?: number;
+  costEstimated?: boolean;
+  /** Cost of this turn's priced tokens (turn usage only). */
+  turnCostUsd?: number;
+  /** Billed tokens summed over the session (session usage) or the turn (turn usage). */
+  spent?: SpentTokens;
   contextPercent?: number;
   /** Tokens currently in the context / the model's window. */
   contextUsed?: number;
   contextWindow?: number;
+}
+
+function addSpent(a: SpentTokens | undefined, b: SpentTokens): SpentTokens {
+  return a
+    ? { input: a.input + b.input, cachedInput: a.cachedInput + b.cachedInput, cacheWrite: a.cacheWrite + b.cacheWrite, output: a.output + b.output }
+    : { ...b };
 }
 
 export interface Turn {
@@ -459,10 +472,15 @@ function applyEvent(d: Draft, ev: AgentEvent, ts?: number) {
       if (ev.contextPercent !== undefined) u.contextPercent = ev.contextPercent;
       if (ev.contextUsed !== undefined) u.contextUsed = ev.contextUsed;
       if (ev.contextWindow !== undefined) u.contextWindow = ev.contextWindow;
+      if (ev.costEstimated !== undefined) u.costEstimated = ev.costEstimated;
       d.s.usage = { ...d.s.usage, ...u };
+      if (ev.spent) d.s.usage.spent = addSpent(d.s.usage.spent, ev.spent);
       if (d.s.turns.length > 0) {
         const t = d.turn(d.s.turns.length - 1);
-        t.usage = { ...t.usage, ...u };
+        const tu: Usage = { ...t.usage, ...u };
+        if (ev.spent) tu.spent = addSpent(t.usage?.spent, ev.spent);
+        if (ev.spentUsd !== undefined) tu.turnCostUsd = (t.usage?.turnCostUsd ?? 0) + ev.spentUsd;
+        t.usage = tu;
       }
       return;
     }

@@ -16,7 +16,7 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react';
-import { useAgents } from '@/lib/queries';
+import { useAgents, useProfiles, useProviderCatalog } from '@/lib/queries';
 import { useNav, useUi } from '@/lib/store';
 import { cn, errorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,7 @@ import { dropSessionStream, useTranscript } from './session-stream';
 import { ThinkingIndicator } from './ThoughtBlock';
 import { TodoDock, todoDockEvents } from './TodoDock';
 import { ContextMeter } from './ContextMeter';
+import { modelDisplayName } from './ModelPicker';
 import { TranscriptView, UsageLine, UserBubble } from './TranscriptView';
 import type { SessionInfo, TranscriptState } from './transcript';
 import { AgentAvatar, StatusDot, STATUS_LABEL, usePersistentState } from './util';
@@ -158,11 +159,22 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
     };
   }, [state.info, session.currentModel, session.currentMode, session.providerModels, session.providerModel, session.externalId]);
 
+  // Provider catalog (OpenRouter): readable names, prices and context sizes of the session's models.
+  const profiles = useProfiles();
+  const profile = session.profileId ? profiles.data?.find((p) => p.id === session.profileId) : undefined;
+  const catalog = useProviderCatalog(profile?.authMode === 'provider' ? profile.providerId : null);
+  const currentModelId = info?.currentModel ?? null;
+  const currentEntry = currentModelId ? catalog.data?.find((e) => e.id === currentModelId) : undefined;
+  const currentModelName = currentModelId
+    ? modelDisplayName(currentModelId, { name: info?.models.find((m) => m.id === currentModelId)?.name, catalog: catalog.data })
+    : null;
+
   const switchModel = (id: string) => {
     if (!session.providerModels) return run(actions.model(id));
     if (id === (session.providerModel ?? null)) return;
+    const name = modelDisplayName(id, { catalog: catalog.data });
     run(
-      actions.model(id).then(() => toast.success(`Modell: ${id} – Agent wird mit dem neuen Modell fortgesetzt`)),
+      actions.model(id).then(() => toast.success(`Modell: ${name} – Agent wird mit dem neuen Modell fortgesetzt`)),
     );
   };
 
@@ -235,8 +247,10 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
           {STATUS_LABEL[status]}
         </span>
         <div className="ml-auto flex items-center gap-1">
-          {state.usage && <UsageLine usage={state.usage} withContext={false} className="hidden md:block" />}
-          {state.usage && <ContextMeter usage={state.usage} />}
+          {state.usage && <UsageLine usage={state.usage} withContext={false} withCost={false} className="hidden md:block" />}
+          {state.usage && (
+            <ContextMeter usage={state.usage} turns={state.turns} pricing={currentEntry?.pricing} modelName={currentModelName} />
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-sm" aria-label="Session-Aktionen">
@@ -337,6 +351,7 @@ function SessionPane({ projectId, session, toggle }: { projectId: string; sessio
             info={info}
             onModel={switchModel}
             modelsFromProvider={!!session.providerModels}
+            modelCatalog={catalog.data}
             onMode={(id) => run(actions.mode(id))}
             approvalPolicy={session.approvalPolicy}
             onApprovalPolicy={(p) => run(actions.approvalPolicy(p).then((s) => upsertSession(qc, s)))}

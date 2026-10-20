@@ -4,8 +4,8 @@ import { CodexAppServerAdapter } from './codex.js';
 import type { AgentAdapter, AgentSessionHandle, AgentStartOptions } from './types.js';
 
 export * from './types.js';
-export { AcpAdapter, AcpSession } from './acp.js';
-export { CodexAppServerAdapter, CodexSession, CODEX_MODES, codexMcpArgs, splitUnifiedDiff } from './codex.js';
+export { AcpAdapter, AcpSession, turnTokens } from './acp.js';
+export { CodexAppServerAdapter, CodexSession, CODEX_MODES, codexMcpArgs, spentSince, splitUnifiedDiff } from './codex.js';
 export { JsonRpcProcess, RpcError } from './jsonrpc.js';
 
 export const ADAPTERS: Record<StructuredTransport, AgentAdapter> = {

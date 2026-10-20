@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
-import type { ApprovalPolicy, ImageInput } from '@vibe/shared';
-import { ArrowUp, Check, ChevronDown, Cpu, ImagePlus, Loader2, ShieldAlert, ShieldCheck, ShieldQuestion, Square, SlidersHorizontal, X } from 'lucide-react';
+import type { ApprovalPolicy, ImageInput, ModelCatalogEntry } from '@vibe/shared';
+import { ArrowUp, Check, ChevronDown, ImagePlus, Loader2, ShieldAlert, ShieldCheck, ShieldQuestion, Square, SlidersHorizontal, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { SessionInfo } from './transcript';
 import { fileToImage } from './util';
+import { ModelPicker } from './ModelPicker';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -122,6 +123,7 @@ export function Composer({
   info,
   onModel,
   modelsFromProvider,
+  modelCatalog,
   onMode,
   approvalPolicy,
   onApprovalPolicy,
@@ -143,6 +145,8 @@ export function Composer({
   onModel?: (id: string) => void;
   /** Models come from the session's provider profile (shows a link to manage them). */
   modelsFromProvider?: boolean;
+  /** Names, prices and context sizes of the provider's models (OpenRouter). */
+  modelCatalog?: ModelCatalogEntry[];
   onMode?: (id: string) => void;
   approvalPolicy?: ApprovalPolicy;
   onApprovalPolicy?: (p: ApprovalPolicy) => void;
@@ -322,7 +326,6 @@ export function Composer({
 
   const models = info?.models ?? [];
   const modes = info?.modes ?? [];
-  const currentModel = models.find((m) => m.id === info?.currentModel);
   const currentMode = modes.find((m) => m.id === info?.currentMode);
 
   return (
@@ -435,11 +438,10 @@ export function Composer({
             />
           )}
           {models.length > 0 && onModel && (
-            <PickerMenu
-              icon={<Cpu className="size-3.5" />}
-              label={currentModel?.name ?? info?.currentModel ?? 'Modell'}
+            <ModelPicker
               title={modelsFromProvider ? 'Modell (Provider)' : 'Modell'}
-              items={models.map((m) => ({ id: m.id, name: m.name }))}
+              models={models}
+              catalog={modelCatalog}
               value={info?.currentModel}
               onSelect={onModel}
               disabled={disabled || (modelsFromProvider && running)}

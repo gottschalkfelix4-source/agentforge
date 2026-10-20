@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type * as acp from '@agentclientprotocol/sdk';
-import type { AgentEvent, ApprovalOption, FileDiff, ImageInput, PlanEntry, QuestionAnswers, QuestionField, ToolKind } from '@vibe/shared';
+import type { AgentEvent, ApprovalOption, FileDiff, ImageInput, PlanEntry, QuestionAnswers, QuestionField, SpentTokens, ToolKind } from '@vibe/shared';
 import { BaseSession, newId } from './base.js';
 import { answersToContent, schemaToFields, type ElicitationResponse, type FormElicitation } from './elicitation.js';
 import { RpcError } from './jsonrpc.js';
@@ -100,9 +100,17 @@ function metaUsage(u: { _meta?: unknown }): { inputTokens: number; outputTokens?
   return usage && typeof usage.inputTokens === 'number' ? (usage as { inputTokens: number; outputTokens?: number; totalTokens?: number }) : null;
 }
 
-/** Turn totals from a PromptResponse: ACP `usage`, or Gemini CLI's `_meta.quota.token_count`. */
-function turnTokens(res: acp.PromptResponse | null | undefined): { inputTokens: number; outputTokens: number } | null {
-  if (res?.usage) return { inputTokens: res.usage.inputTokens, outputTokens: res.usage.outputTokens };
+/**
+ * Turn totals from a PromptResponse: ACP `usage`, or Gemini CLI's `_meta.quota.token_count`. `spent` is what the
+ * turn billed: claude-agent-acp reports per turn with Anthropic semantics (input without cache reads/writes).
+ */
+export function turnTokens(res: acp.PromptResponse | null | undefined): { inputTokens: number; outputTokens: number; spent?: SpentTokens } | null {
+  if (res?.usage) {
+    const u = res.usage;
+    const spent = { input: u.inputTokens, cachedInput: u.cachedReadTokens ?? 0, cacheWrite: u.cachedWriteTokens ?? 0, output: u.outputTokens };
+    const any = spent.input + spent.cachedInput + spent.cacheWrite + spent.output > 0;
+    return { inputTokens: u.inputTokens, outputTokens: u.outputTokens, ...(any ? { spent } : {}) };
+  }
   const tc = (res?._meta as { quota?: { token_count?: { input_tokens?: unknown; output_tokens?: unknown } } } | null | undefined)?.quota?.token_count;
   if (tc && typeof tc.input_tokens === 'number' && typeof tc.output_tokens === 'number' && tc.input_tokens + tc.output_tokens > 0) {
     return { inputTokens: tc.input_tokens, outputTokens: tc.output_tokens };

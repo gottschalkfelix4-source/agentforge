@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { APP_CALL_CHATGPT_TOKEN, type AgentProfile, type ChatGptDevicePoll, type Provider, type ProviderKind, type WsdNotifications } from '@vibe/shared';
+import { APP_CALL_CHATGPT_TOKEN, type AgentProfile, type ChatGptDevicePoll, type ModelCatalogEntry, type Provider, type ProviderKind, type WsdNotifications } from '@vibe/shared';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 import type { AppContext } from '../app-context.js';
+import { providerCatalog } from '../agents/providers/pricing.js';
 import { accountOf, type ChatGptTokens } from '../chatgpt/auth.js';
 import { chatgptService, LAUNCH_MIN_VALID_MS } from '../chatgpt/service.js';
 import { nowIso } from '../db/index.js';
@@ -271,6 +272,17 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext) {
     }
     const apiKey = body.apiKey || (existing.secretId ? (secrets.get(existing.secretId) ?? '') : '');
     return testProvider({ kind: body.kind ?? existing.kind, baseUrl: body.baseUrl === undefined ? existing.baseUrl : body.baseUrl || null, apiKey });
+  });
+
+  // Names, context lengths and prices of the models the provider is set up with (empty for providers without a catalog).
+  app.get<{ Params: { id: string } }>('/api/providers/:id/catalog', async (req): Promise<ModelCatalogEntry[]> => {
+    const p = repo.get(req.params.id);
+    if (!p) throw new HttpError(404, 'not_found', 'Provider nicht gefunden');
+    const catalog = await providerCatalog(p);
+    if (!catalog) return [];
+    const profileModels = db.all<{ model: string }>('SELECT model FROM agent_profiles WHERE provider_id = ? AND model IS NOT NULL', p.id).map((r) => r.model);
+    const ids = new Set([...p.models, p.defaultModel, ...profileModels].filter((m): m is string => !!m));
+    return [...ids].map((id) => catalog.get(id)).filter((e): e is ModelCatalogEntry => !!e);
   });
 
   app.post('/api/providers/test', async (req) => {

@@ -6,6 +6,7 @@ import type {
   CreateSessionRequest,
   ImageInput,
   McpServerSpec,
+  ModelPricing,
   QuestionResponse,
   SessionEventRecord,
   SessionStatus,
@@ -16,6 +17,7 @@ import { AGENTFORGE_MCP_NAME, getAgentManifest } from '@vibe/shared';
 import { ulid } from 'ulid';
 import { ensureAgentInstructions } from '../agents/instructions.js';
 import { buildStructuredLaunch, resolveLaunchContextWindow } from '../agents/launch.js';
+import { cachedPricing, hasCatalog, priceTokens, warmCatalog } from '../agents/providers/pricing.js';
 import type { AppContext } from '../app-context.js';
 import { githubService } from '../github/service.js';
 import { nowIso, type Db } from '../db/index.js';
@@ -101,12 +103,55 @@ const FINISHED: SessionStatus[] = ['stopped', 'error'];
 
 type Log = { info: (m: string) => void; warn: (m: string) => void };
 
+type UsageEvent = Extract<AgentEvent, { type: 'usage' }>;
+
+/**
+ * Pricing for the billed tokens of a session (OpenRouter profiles): null = not priced by Agentforge,
+ * undefined = prices not loaded yet.
+ */
+export type SessionPricer = (row: SessionRow) => ModelPricing | null | undefined;
+
 /**
  * Event persistence for structured agent sessions. Pure DB + bus logic (unit-tested with an
  * in-memory Db); the wsd wiring lives in SessionService.
  */
 export class SessionStore {
-  constructor(readonly db: Db) {}
+  /** Running cost totals of priced sessions (recovered from the last priced usage event). */
+  private readonly costs = new Map<string, number>();
+
+  constructor(
+    readonly db: Db,
+    private readonly pricer: SessionPricer = () => null,
+  ) {}
+
+  private costTotal(sessionId: string): number {
+    let total = this.costs.get(sessionId);
+    if (total === undefined) {
+      const last = this.db.get<{ cost: number | null }>(
+        `SELECT json_extract(payload_json, '$.costUsd') AS cost FROM session_events
+          WHERE session_id = ? AND type = 'usage' AND json_extract(payload_json, '$.spentUsd') IS NOT NULL ORDER BY seq DESC LIMIT 1`,
+        sessionId,
+      );
+      total = typeof last?.cost === 'number' ? last.cost : 0;
+      this.costs.set(sessionId, total);
+    }
+    return total;
+  }
+
+  /**
+   * Prices `spent` with the provider's model pricing: `spentUsd` and the session total `costUsd` replace the
+   * agent's own cost (Claude Code prices every model like Anthropic's). Unpriced sessions pass through.
+   */
+  private priceUsage(row: SessionRow, e: UsageEvent): { event: UsageEvent; total?: number } {
+    const pricing = this.pricer(row);
+    if (!pricing) return { event: e };
+    const { costUsd: _agentCost, ...rest } = e;
+    const prev = this.costTotal(row.id);
+    if (!e.spent) return { event: prev > 0 ? { ...rest, costUsd: prev, costEstimated: true } : rest };
+    const spentUsd = priceTokens(e.spent, pricing);
+    const total = prev + spentUsd;
+    return { event: { ...rest, spentUsd, costUsd: total, costEstimated: true }, total };
+  }
 
   row(id: string): SessionRow | undefined {
     return this.db.get<SessionRow>('SELECT * FROM agent_sessions WHERE id = ?', id);
@@ -152,12 +197,14 @@ export class SessionStore {
    * publishes live events. Returns false for duplicates / unknown sessions.
    */
   ingest(projectId: string, sessionId: string, rec: SessionEventRecord): boolean {
-    const e = rec.event;
+    let e = rec.event;
     let changed = false;
     let row: SessionRow | undefined;
     const inserted = this.db.tx(() => {
       row = this.db.get<SessionRow>('SELECT * FROM agent_sessions WHERE id = ? AND project_id = ?', sessionId, projectId);
       if (!row) return false;
+      const priced = e.type === 'usage' ? this.priceUsage(row, e) : null;
+      if (priced) e = priced.event;
       const res = this.db.run(
         'INSERT OR IGNORE INTO session_events (session_id, seq, ts, type, payload_json) VALUES (?, ?, ?, ?, ?)',
         sessionId,
@@ -167,6 +214,7 @@ export class SessionStore {
         JSON.stringify(e),
       );
       if (Number(res.changes) === 0) return false;
+      if (priced?.total !== undefined) this.costs.set(sessionId, priced.total);
 
       const upd: Record<string, string | number | null> = {};
       switch (e.type) {
@@ -244,7 +292,7 @@ export class SessionService {
     private readonly ctx: AppContext,
     private readonly log: Log,
   ) {
-    this.store = new SessionStore(ctx.db);
+    this.store = new SessionStore(ctx.db, (row) => this.pricing(row));
   }
 
   /** Hooks into wsd notifications and connection events. */
@@ -329,6 +377,7 @@ export class SessionService {
       );
     }
     const provider = profile?.providerId ? repo.get(profile.providerId) : null;
+    if (profile?.authMode === 'provider') warmCatalog(provider); // prices for the session's cost
     const creds = profile?.authMode === 'provider' ? await repo.credentials(provider) : { apiKey: null, chatgpt: null };
     const modelOverride = row.provider_model ?? null;
     const contextWindow = profile?.authMode === 'provider' ? await resolveLaunchContextWindow({ profile, provider, apiKey: creds.apiKey, modelOverride }) : null;
@@ -369,6 +418,16 @@ export class SessionService {
     const selected = row.provider_model || profile.model || provider.defaultModel || null;
     const models = [...new Set([...provider.models, provider.defaultModel, profile.model, selected].filter((m): m is string => !!m))];
     return { models, selected };
+  }
+
+  /** Model pricing for sessions whose provider publishes prices (OpenRouter), see SessionPricer. */
+  private pricing(row: SessionRow): ModelPricing | null | undefined {
+    const repo = providerRepo(this.ctx);
+    const profile = row.profile_id ? repo.profile(row.profile_id) : null;
+    if (profile?.authMode !== 'provider' || !profile.providerId) return null;
+    const provider = repo.get(profile.providerId);
+    if (!provider || !hasCatalog(provider)) return null;
+    return cachedPricing(provider, row.provider_model || profile.model || provider.defaultModel);
   }
 
   /** Sessions of a project; rows created before provider models existed are filled in on the way. */

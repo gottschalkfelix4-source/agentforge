@@ -17,6 +17,7 @@ export const qk = {
   ports: (id: string) => ['ports', id] as const,
   providers: ['providers'] as const,
   profiles: ['profiles'] as const,
+  providerCatalog: (id: string) => ['providerCatalog', id] as const,
 };
 
 export function createQueryClient() {
@@ -53,6 +54,9 @@ export const usePorts = (id: string, enabled = true) =>
   useQuery({ queryKey: qk.ports(id), queryFn: () => api.ports(id), enabled: !!id && enabled });
 export const useProviders = () => useQuery({ queryKey: qk.providers, queryFn: api.providers });
 export const useProfiles = () => useQuery({ queryKey: qk.profiles, queryFn: api.profiles });
+/** Names, context lengths and prices of the provider's configured models (OpenRouter); empty for other providers. */
+export const useProviderCatalog = (id: string | null | undefined) =>
+  useQuery({ queryKey: qk.providerCatalog(id ?? ''), queryFn: () => api.providerCatalog(id!), enabled: !!id, staleTime: 30 * 60_000 });
 
 // ---- mutations ---------------------------------------------------------------
 

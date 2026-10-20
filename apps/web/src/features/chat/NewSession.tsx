@@ -2,16 +2,18 @@ import * as React from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Cpu, KeyRound, Loader2, SquareTerminal, TriangleAlert, UserCog } from 'lucide-react';
+import { KeyRound, Loader2, SquareTerminal, TriangleAlert, UserCog } from 'lucide-react';
 import type { ApprovalPolicy } from '@vibe/shared';
 import { api, ApiRequestError } from '@/lib/api';
-import { qk, useProfiles, useProviders } from '@/lib/queries';
+import { qk, useProfiles, useProviderCatalog, useProviders } from '@/lib/queries';
 import { useNav, useUi } from '@/lib/store';
 import { errorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { chatApi, useChatAgents, useCreateSession } from './api';
 import { ApprovalPolicyPicker, Composer, PickerMenu, type ComposerApi, type ComposerImage } from './Composer';
 import { AgentAvatar, usePersistentState } from './util';
+import { ModelPicker } from './ModelPicker';
 
 const SUGGESTIONS = [
   { title: 'Projekt erklären', prompt: 'Erkläre mir die Struktur dieses Projekts und wie ich es lokal starte.' },
@@ -55,6 +57,7 @@ export function NewSession({ projectId }: { projectId: string }) {
         : [],
     [provider, profile?.model],
   );
+  const catalog = useProviderCatalog(provider?.id);
   const fallbackModel = profile?.model ?? provider?.defaultModel ?? providerModels[0] ?? null;
   const storedModel = profileId ? modelPref[profileId] : undefined;
   const model = storedModel && providerModels.includes(storedModel) ? storedModel : fallbackModel;
@@ -148,20 +151,20 @@ export function NewSession({ projectId }: { projectId: string }) {
       />
       <ApprovalPolicyPicker value={approvalPolicy} onSelect={selectPolicy} />
       {provider && (
-        <PickerMenu
-          icon={<Cpu className="size-3.5" />}
-          label={model ?? 'Modell'}
+        <ModelPicker
           title={`Modell (${provider.name})`}
-          items={
-            providerModels.length
-              ? providerModels.map((m) => ({ id: m, name: m }))
-              : [{ id: '__none', name: 'Keine Modelle hinterlegt', description: 'Einstellungen → Provider → „Modelle laden“' }]
-          }
+          models={providerModels.map((id) => ({ id }))}
+          catalog={catalog.data}
           value={model}
           onSelect={(id) => {
-            if (id === '__none') return navigate('/settings/providers');
             if (profileId) setModelPref({ ...modelPref, [profileId]: id });
           }}
+          empty={
+            <DropdownMenuItem onSelect={() => navigate('/settings/providers')} className="flex-col items-start gap-0">
+              <span>Keine Modelle hinterlegt</span>
+              <span className="text-[11px] text-muted-foreground">Einstellungen → Provider → „Modelle laden“</span>
+            </DropdownMenuItem>
+          }
         />
       )}
     </>

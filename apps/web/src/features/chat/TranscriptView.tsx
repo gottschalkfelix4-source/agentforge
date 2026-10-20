@@ -35,6 +35,7 @@ import { formatDuration, ThoughtView, useElapsed } from './ThoughtBlock';
 import { boardToolLabel, type ApprovalItem, type MessageItem, type NoticeItem, type QuestionItem, type ToolItem, type TranscriptItem, type TranscriptState, type Turn, type Usage } from './transcript';
 import { QuestionCard } from './QuestionCard';
 import { formatTokens } from './util';
+import { formatUsd } from './cost';
 
 interface Ctx {
   projectId: string;
@@ -527,11 +528,29 @@ export function contextLabel(usage: Usage): string | null {
   return usage.contextPercent !== undefined ? `Kontext ${Math.round(usage.contextPercent)} %` : null;
 }
 
-export function UsageLine({ usage, className, withContext = true }: { usage: Usage; className?: string; withContext?: boolean }) {
+/** Token counts, cost and context of a turn (`withCost`: the turn's cost and the session total so far). */
+export function UsageLine({
+  usage,
+  className,
+  withContext = true,
+  withCost = true,
+}: {
+  usage: Usage;
+  className?: string;
+  withContext?: boolean;
+  withCost?: boolean;
+}) {
   const parts: string[] = [];
   if (usage.inputTokens !== undefined) parts.push(`${formatTokens(usage.inputTokens)} ein`);
   if (usage.outputTokens !== undefined) parts.push(`${formatTokens(usage.outputTokens)} aus`);
-  if (usage.costUsd !== undefined) parts.push(`${usage.costUsd.toFixed(usage.costUsd < 1 ? 3 : 2)}`);
+  if (withCost) {
+    const approx = usage.costEstimated ? '≈ ' : '';
+    if (usage.turnCostUsd !== undefined) {
+      parts.push(`${approx}${formatUsd(usage.turnCostUsd)} dieser Turn` + (usage.costUsd !== undefined ? ` (gesamt ${approx}${formatUsd(usage.costUsd)})` : ''));
+    } else if (usage.costUsd !== undefined) {
+      parts.push(`gesamt ${approx}${formatUsd(usage.costUsd)}`);
+    }
+  }
   const ctx = withContext ? contextLabel(usage) : null;
   if (ctx) parts.push(ctx);
   if (!parts.length) return null;

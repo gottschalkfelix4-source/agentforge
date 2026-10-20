@@ -47,6 +47,14 @@ export interface ImageInput {
   data: string;
 }
 
+/** Tokens billed for model requests: uncached input, cache reads, cache writes, output (incl. reasoning). */
+export interface SpentTokens {
+  input: number;
+  cachedInput: number;
+  cacheWrite: number;
+  output: number;
+}
+
 export type AgentEvent =
   /** Echo of a user prompt, so the transcript is complete from events alone. */
   | { type: 'user.message'; id: string; text: string; images?: ImageInput[] }
@@ -95,6 +103,8 @@ export type AgentEvent =
   /**
    * Token usage. `contextUsed`/`contextWindow`: tokens currently in the context and the model's window (the
    * window Agentforge resolved from the provider wins over the agent's own guess); `contextPercent` = used / window.
+   * `spent`: tokens billed since the previous report (for pricing); `costUsd` is the session total, `spentUsd` the
+   * cost of `spent` when Agentforge priced it from the provider's model pricing (`costEstimated`).
    */
   | {
       type: 'usage';
@@ -104,6 +114,9 @@ export type AgentEvent =
       contextPercent?: number;
       contextUsed?: number;
       contextWindow?: number;
+      spent?: SpentTokens;
+      spentUsd?: number;
+      costEstimated?: boolean;
     }
   | { type: 'status'; status: SessionStatus; message?: string }
   | { type: 'turn.start' }

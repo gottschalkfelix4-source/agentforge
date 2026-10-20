@@ -2,7 +2,7 @@
 // without the "jsonrpc" field on its side) over stdio.
 // Flow: initialize → initialized → thread/start|thread/resume → turn/start … turn/completed.
 
-import type { AgentEvent, ApprovalOption, FileDiff, ImageInput, McpServerSpec, ToolKind } from '@vibe/shared';
+import type { AgentEvent, ApprovalOption, FileDiff, ImageInput, McpServerSpec, SpentTokens, ToolKind } from '@vibe/shared';
 import { BaseSession, newId } from './base.js';
 import { RpcError, type RpcId } from './jsonrpc.js';
 import type * as cx from './codex-protocol.js';
@@ -75,6 +75,19 @@ export function splitUnifiedDiff(diff: string): FileDiff[] {
   return out;
 }
 
+/**
+ * Tokens billed since the previous report: the growth of the thread totals; for the first report of this process
+ * (resumed threads already carry earlier totals) only the latest request. OpenAI counts cached input inside
+ * `inputTokens` and reasoning inside `outputTokens`.
+ */
+export function spentSince(prev: cx.TokenUsageBreakdown | null, total: cx.TokenUsageBreakdown, last: cx.TokenUsageBreakdown): SpentTokens | null {
+  const base = prev && total.inputTokens >= prev.inputTokens && total.outputTokens >= prev.outputTokens ? prev : null;
+  const d = (k: 'inputTokens' | 'cachedInputTokens' | 'outputTokens') => (base ? total[k] - base[k] : last[k]);
+  const cached = Math.max(0, d('cachedInputTokens'));
+  const spent = { input: Math.max(0, d('inputTokens') - cached), cachedInput: cached, cacheWrite: 0, output: Math.max(0, d('outputTokens')) };
+  return spent.input + spent.cachedInput + spent.output > 0 ? spent : null;
+}
+
 interface ToolState {
   kind: ToolKind;
   streamed: boolean;
@@ -101,6 +114,8 @@ export class CodexSession extends BaseSession {
   /** Start time of reasoning items, for the thought duration when no deltas were streamed. */
   private readonly reasoningStartedAt = new Map<string, number>();
   private turnErrorReported = false;
+  /** Thread token totals of the previous usage report (billing deltas). */
+  private lastTotals: cx.TokenUsageBreakdown | null = null;
   /** Sub-agent thread → the tool id of its sub-agent card (items of that thread are shown inside the card). */
   private readonly childThreads = new Map<string, string>();
   /** Notifications of threads not (yet) known as sub-agents — replayed once the spawn names them. */
@@ -308,7 +323,14 @@ export class CodexSession extends BaseSession {
       case 'thread/tokenUsage/updated': {
         const u = (params as cx.ThreadTokenUsageUpdatedNotification).tokenUsage;
         // `last` is the latest model request, i.e. what is in the context right now.
-        this.emit({ ...this.contextUsage(u.last.totalTokens, u.modelContextWindow), inputTokens: u.total.inputTokens, outputTokens: u.total.outputTokens });
+        const spent = spentSince(this.lastTotals, u.total, u.last);
+        this.lastTotals = u.total;
+        this.emit({
+          ...this.contextUsage(u.last.totalTokens, u.modelContextWindow),
+          inputTokens: u.total.inputTokens,
+          outputTokens: u.total.outputTokens,
+          ...(spent ? { spent } : {}),
+        });
         break;
       }
       case 'error': {
