@@ -20,7 +20,7 @@ export interface BackupOptions {
   version: string;
   /** Include `<dataDir>/projects` (without dependency/build caches). */
   includeProjects: boolean;
-  /** True when the encryption key comes from VIBE_SECRET_KEY (then secret.key is not part of the backup). */
+  /** True when the encryption key comes from AGENTFORGE_SECRET_KEY (then secret.key is not part of the backup). */
   keyFromEnv: boolean;
   log?: { warn: (m: string) => void };
 }
@@ -69,10 +69,10 @@ export function createBackupStream(opts: BackupOptions): Readable {
       if (includeKey) {
         warnings.push(
           'secret.key ist enthalten: Wer dieses Backup besitzt, kann alle gespeicherten API-Keys und Tokens entschlüsseln. ' +
-            'Backup sicher aufbewahren oder VIBE_SECRET_KEY setzen.',
+            'Backup sicher aufbewahren oder AGENTFORGE_SECRET_KEY setzen.',
         );
       } else if (opts.keyFromEnv) {
-        warnings.push('Der Schlüssel kommt aus VIBE_SECRET_KEY und ist nicht enthalten – für eine Wiederherstellung wird derselbe Wert benötigt.');
+        warnings.push('Der Schlüssel kommt aus AGENTFORGE_SECRET_KEY und ist nicht enthalten – für eine Wiederherstellung wird derselbe Wert benötigt.');
       }
 
       const contents = ['vibe.sqlite'];

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { parseTrustProxy } from './trust-proxy.js';
 
 const env = process.env;
 
@@ -44,7 +45,10 @@ export const config = {
   allowedOrigins: (env.VIBE_ALLOWED_ORIGINS ?? 'http://localhost:5180').split(',').map((s) => s.trim()).filter(Boolean),
   defaultCpuLimit: env.WORKSPACE_CPUS ? Number(env.WORKSPACE_CPUS) : 4,
   defaultMemLimitMb: env.WORKSPACE_MEMORY_MB ? Number(env.WORKSPACE_MEMORY_MB) : 8192,
+  /** Always mark the session cookie `Secure` (also when TLS ends at a proxy that isn't trusted). */
   secureCookies: env.VIBE_SECURE_COOKIES === '1',
+  /** Whose X-Forwarded-* headers to believe (Fastify `trustProxy`), see trust-proxy.ts. */
+  trustProxy: parseTrustProxy(env.VIBE_TRUST_PROXY, inContainer),
   /** Live preview routing: "port" (default, no DNS needed) or "subdomain" (needs wildcard DNS). */
   previewMode: (env.PREVIEW_MODE === 'subdomain' ? 'subdomain' : 'port') as 'port' | 'subdomain',
   previewDomain: env.PREVIEW_DOMAIN ?? null,

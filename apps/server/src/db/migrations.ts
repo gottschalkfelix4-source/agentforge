@@ -249,4 +249,13 @@ export const migrations: string[] = [
   /* v7: default approval policy of an agent profile (preselected for its chat sessions and task runs) */ `
   ALTER TABLE agent_profiles ADD COLUMN approval_policy TEXT NOT NULL DEFAULT 'ask';
   `,
+
+  /* v8: ChatGPT providers an agent terminal of a project was launched with (may fetch the access token) */ `
+  CREATE TABLE project_provider_grants (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (project_id, provider_id)
+  );
+  `,
 ];

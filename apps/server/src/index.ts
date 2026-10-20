@@ -31,13 +31,13 @@ const PUBLIC_ROUTES = new Set(['/api/health', '/api/me', '/api/auth/setup', '/ap
 async function main() {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
-    trustProxy: true,
+    trustProxy: config.trustProxy,
     bodyLimit: 25 * 1024 * 1024,
   });
 
   const db = new Db(path.join(config.dataDir, 'db', 'vibe.sqlite'));
   const secrets = new SecretStore(db, config.dataDir, config.secretKey);
-  const auth = new Auth(db, config.dataDir, (m) => app.log.info(m));
+  const auth = new Auth(db, config.dataDir, (m) => app.log.info(m), config.secureCookies);
   const orch = new Orchestrator(config);
   const workspaces = new WorkspaceManager(db, orch, config, {
     info: (m) => app.log.info(m),
@@ -46,7 +46,7 @@ async function main() {
   const ctx: AppContext = { cfg: config, db, auth, secrets, orch, workspaces };
 
   if (!secrets.keyFromEnv) {
-    app.log.warn('VIBE_SECRET_KEY ist nicht gesetzt – Secrets werden mit einem Schlüssel neben der Datenbank verschlüsselt.');
+    app.log.warn('AGENTFORGE_SECRET_KEY ist nicht gesetzt – Secrets werden mit einem Schlüssel neben der Datenbank verschlüsselt.');
   }
 
   await app.register(fastifyCookie);
@@ -103,7 +103,7 @@ async function main() {
       return reply.code(404).send({ error: 'not_found', message: 'Nicht gefunden' });
     });
   } else {
-    app.log.info(`Kein Web-Build unter ${webDist} – im Dev-Modus läuft die UI über Vite (:5173).`);
+    app.log.info(`Kein Web-Build unter ${webDist} – im Dev-Modus läuft die UI über Vite (:5180).`);
   }
 
   try {

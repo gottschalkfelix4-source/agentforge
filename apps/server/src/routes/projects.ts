@@ -47,6 +47,9 @@ function slugify(name: string) {
   return base || 'projekt';
 }
 
+/** GitHub owner / repository name (also used in API paths and clone URLs). */
+const repoPart = z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9_.-]+$/);
+
 const createBody = z.object({
   name: z.string().trim().min(1).max(100),
   gitUrl: z
@@ -57,17 +60,14 @@ const createBody = z.object({
     .or(z.literal('').transform(() => null)),
   // Phase 3: link a GitHub repo (cloned via wsd RPC with the stored token, see github/service.ts).
   repo: z
-    .object({
-      owner: z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9_.-]+$/),
-      name: z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9_.-]+$/),
-    })
+    .object({ owner: repoPart, name: repoPart })
     .nullish(),
 });
-const updateBody = z.object({
+export const updateBody = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   archived: z.boolean().optional(),
-  repoOwner: z.string().trim().min(1).nullish(),
-  repoName: z.string().trim().min(1).nullish(),
+  repoOwner: repoPart.nullish(),
+  repoName: repoPart.nullish(),
 });
 const terminalBody = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('shell'), cols: z.number().int().positive().optional(), rows: z.number().int().positive().optional() }),
@@ -194,6 +194,8 @@ export async function projectRoutes(app: FastifyInstance, ctx: AppContext) {
       const creds = body.mode === 'run' && profile?.authMode === 'provider' ? await repo.credentials(provider) : { apiKey: null, chatgpt: null };
       const contextWindow = body.mode === 'run' ? await resolveLaunchContextWindow({ profile, provider, apiKey: creds.apiKey }) : null;
       params = buildAgentLaunch(body.agentId, body.mode, { profile, provider, ...creds, contextWindow });
+      // Codex in this terminal will ask for the ChatGPT access token (see providers.ts).
+      if (body.mode === 'run' && profile?.authMode === 'provider' && provider) repo.grantProject(req.params.id, provider);
       if (body.mode === 'run') await ensureAgentInstructions(ctx.db, req.params.id, client, (m) => req.log.warn(m));
     }
     // GitHub token for the `gh` CLI (process env only, never container env).

@@ -16,7 +16,13 @@ export class Auth {
   /** One-time token required for the first-run admin setup; null once an admin exists. */
   private setupToken: string | null = null;
 
-  constructor(private readonly db: Db, private readonly dataDir: string, private readonly log: (msg: string) => void) {
+  constructor(
+    private readonly db: Db,
+    private readonly dataDir: string,
+    private readonly log: (msg: string) => void,
+    /** AGENTFORGE_SECURE_COOKIES: `Secure` cookie even when the request itself arrived over plain HTTP. */
+    private readonly secureCookies = false,
+  ) {
     if (!this.hasAdmin()) {
       this.setupToken = randomBytes(9).toString('base64url');
       const file = path.join(dataDir, 'setup-token.txt');
@@ -66,7 +72,7 @@ export class Auth {
       path: '/',
       httpOnly: true,
       sameSite: 'strict',
-      secure: req.protocol === 'https',
+      secure: this.secureCookies || req.protocol === 'https',
       expires,
     });
   }

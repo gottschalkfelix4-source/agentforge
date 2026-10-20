@@ -6,7 +6,7 @@ import type { Db } from './db/index.js';
 import { nowIso } from './db/index.js';
 
 /**
- * AES-256-GCM encryption of secrets at rest. The master key comes from VIBE_SECRET_KEY, or —
+ * AES-256-GCM encryption of secrets at rest. The master key comes from AGENTFORGE_SECRET_KEY, or —
  * as a weaker fallback — from an auto-generated key file next to the database.
  */
 export class SecretStore {
