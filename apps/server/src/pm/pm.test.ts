@@ -4,6 +4,7 @@ import { Db, nowIso } from '../db/index.js';
 import { GitHubClient, type FetchFn } from '../github/client.js';
 import { isValidRank, planMove, rankAtEnd, rankBetween, rankSequence } from './rank.js';
 import { PmRepo } from './repo.js';
+import { AgentTools } from './agent-tools.js';
 import { buildTaskPrompt, prBody, slugify, TaskRunService, type RunDeps, type WsdLike } from './runs.js';
 import { columnFromIssue, decide, issuePayloadFromTask, PmSync, taskFieldsFromIssue } from './sync.js';
 
@@ -211,6 +212,7 @@ function fakeWsd(opts: { isRepo?: boolean; dirty?: boolean } = {}) {
   const calls: { method: string; params: unknown }[] = [];
   let head = 'base0';
   let dirty = opts.dirty ?? true;
+  let commits = 0;
   const client: WsdLike = {
     call: (async (method: WsdMethod, params: unknown) => {
       calls.push({ method, params });
@@ -226,19 +228,19 @@ function fakeWsd(opts: { isRepo?: boolean; dirty?: boolean } = {}) {
           return { path: p.path, branch: p.branch, head: 'base0' };
         }
         case 'git.commit':
-          head = 'c1';
+          head = `c${++commits}`;
           dirty = false;
-          return { sha: 'c1' };
+          return { sha: head };
         default:
           return { ok: true, output: '' };
       }
     }) as WsdLike['call'],
   };
-  return { client, calls };
+  return { client, calls, setDirty: (d: boolean) => (dirty = d) };
 }
 
 let sn = 0;
-function runDeps(client: WsdLike, linked = true) {
+function runDeps(client: WsdLike, linked = true, opts: { failPrompt?: boolean } = {}) {
   const prompts: string[] = [];
   const pulls: unknown[] = [];
   let pullState: 'open' | 'closed' | 'merged' = 'open';
@@ -257,7 +259,10 @@ function runDeps(client: WsdLike, linked = true) {
         });
         return { id, projectId, status: 'starting', cwd: req.cwd } as unknown as AgentSession;
       },
-      prompt: async (_sid, text) => prompts.push(text),
+      prompt: async (_sid, text) => {
+        if (opts.failPrompt) throw new Error('agent not reachable');
+        return prompts.push(text);
+      },
       stop: async () => ({}),
       link: () => {},
     },
@@ -275,6 +280,8 @@ function runDeps(client: WsdLike, linked = true) {
 }
 
 describe('task runs', () => {
+  const tools = new AgentTools(repo);
+
   it('builds prompts, slugs and PR bodies', () => {
     expect(slugify('Größe ändern & testen!')).toBe('groesse-aendern-testen');
     const base = { taskId: 't1', title: 'T', body: 'B', labels: ['bug'], milestone: { title: 'v1', dueOn: '2026-10-01' }, issue: { number: 3, url: null }, worktreePath: '.worktrees/task-x', branch: 'vibe/x' };
@@ -311,9 +318,19 @@ describe('task runs', () => {
     expect(calls.find((c) => c.method === 'git.worktree.add')!.params).toMatchObject({ base: 'main' });
     expect(prompts[0]).toContain('Dark Mode einbauen');
     expect(repo.taskRow(t.id).col).toBe('in_progress');
+    expect(prompts[0]).toContain('task_done');
 
+    // A turn that ends without the done signal (e.g. a question to the user) commits nothing.
+    await svc.onAgentEvent(run.sessionId!, { type: 'turn.done', stopReason: 'end_turn' });
+    expect(repo.runRow(run.id).status).toBe('running');
+    expect(calls.some((c) => c.method === 'git.commit' || c.method === 'git.push')).toBe(false);
+    expect(pulls).toHaveLength(0);
+    expect(repo.taskRow(t.id).col).toBe('in_progress');
+
+    tools.run(pid, run.sessionId!, 'task_done', {});
     await svc.onAgentEvent(run.sessionId!, { type: 'turn.done', stopReason: 'end_turn' });
     const done = repo.runRow(run.id);
+    expect(done.agent_done).toBe(0); // consumed
     expect(done).toMatchObject({ status: 'pr_open', pr_number: 42 });
     expect(calls.map((c) => c.method)).toEqual(expect.arrayContaining(['git.stage', 'git.commit', 'git.push']));
     expect(pulls[0]).toMatchObject({ head: run.branch, base: 'main', title: 'Dark Mode einbauen' });
@@ -327,20 +344,87 @@ describe('task runs', () => {
     expect(calls.at(-1)).toMatchObject({ method: 'git.worktree.remove', params: { path: run.worktreePath, force: true } });
   });
 
-  it('auto flow without changes → awaiting_review; cancel moves the task back', async () => {
+  it('auto flow without changes → awaiting_review with the task in review; cancel moves the task back', async () => {
     const pid = project(false);
     const t = repo.createTask(pid, { title: 'Nichts tun', column: 'todo' });
     const { client, calls } = fakeWsd({ dirty: false });
     const svc = new TaskRunService(runDeps(client, false).deps);
     const run = await svc.start(t.id, { agentId: 'codex', autoPr: true });
     await expect(svc.start(t.id, { agentId: 'codex' })).rejects.toThrow(/bereits/);
+    tools.run(pid, run.sessionId!, 'task_done', {});
     await svc.onAgentEvent(run.sessionId!, { type: 'turn.done', stopReason: 'end_turn' });
     expect(repo.runRow(run.id).status).toBe('awaiting_review');
+    // run and task agree: the agent's result (no changes) awaits the user's review
+    expect(repo.taskRow(t.id).col).toBe('review');
     await expect(svc.finish(run.id)).rejects.toThrow(/Keine Änderungen/);
     const c = await svc.cancel(run.id, { removeWorktree: true });
     expect(c.status).toBe('cancelled');
     expect(calls.at(-1)!.method).toBe('git.worktree.remove');
     expect(repo.taskRow(t.id).col).toBe('todo');
+  });
+
+  it('only auto-finishes after the agent declared the task done', async () => {
+    const pid = project(false);
+    const t = repo.createTask(pid, { title: 'Rückfrage', column: 'todo' });
+    const { client, calls } = fakeWsd();
+    const svc = new TaskRunService(runDeps(client, false).deps);
+    const run = await svc.start(t.id, { agentId: 'codex', autoPr: true });
+    // The agent asks a question and ends its turn: nothing is committed, the run stays open.
+    await svc.onAgentEvent(run.sessionId!, { type: 'turn.done', stopReason: 'end_turn' });
+    expect(repo.runRow(run.id).status).toBe('running');
+    expect(calls.some((c) => c.method === 'git.commit')).toBe(false);
+    // Moving its own task to review is the same signal (works with workspace images that lack task_done).
+    tools.run(pid, run.sessionId!, 'task_set_status', { id: t.id, status: 'review' });
+    expect(repo.runRow(run.id).agent_done).toBe(1);
+    await svc.onAgentEvent(run.sessionId!, { type: 'turn.done', stopReason: 'end_turn' });
+    expect(repo.runRow(run.id)).toMatchObject({ status: 'awaiting_review', agent_done: 0 });
+    expect(calls.some((c) => c.method === 'git.commit')).toBe(true);
+    // Moving another task does not count; task_done outside a task run is refused.
+    const other = repo.createTask(pid, { title: 'Andere' });
+    tools.run(pid, run.sessionId!, 'task_set_status', { id: other.id, status: 'review' });
+    expect(repo.runRow(run.id).agent_done).toBe(0);
+    expect(() => tools.run(pid, null, 'task_done', {})).toThrow(/keinem offenen Agent-Lauf/);
+  });
+
+  it('syncs follow-up turns of runs awaiting review or with an open PR', async () => {
+    const pid = project(true);
+    const t = repo.createTask(pid, { title: 'Nachbessern', column: 'todo' });
+    const { client, calls, setDirty } = fakeWsd({ dirty: false });
+    const { deps, pulls } = runDeps(client);
+    const svc = new TaskRunService(deps);
+    const run = await svc.start(t.id, { agentId: 'codex', autoPr: true });
+    const sid = run.sessionId!;
+    const turn = async (done: boolean) => {
+      if (done) tools.run(pid, sid, 'task_done', {});
+      await svc.onAgentEvent(sid, { type: 'turn.done', stopReason: 'end_turn' });
+    };
+
+    // First turn without changes → awaiting_review, no PR.
+    await turn(true);
+    expect(repo.runRow(run.id).status).toBe('awaiting_review');
+    expect(pulls).toHaveLength(0);
+
+    // Follow-up with changes: a question first (nothing happens), then done → commit, push, PR.
+    setDirty(true);
+    await turn(false);
+    expect(calls.some((c) => c.method === 'git.commit')).toBe(false);
+    await turn(true);
+    expect(repo.runRow(run.id)).toMatchObject({ status: 'pr_open', pr_number: 42 });
+    expect(pulls).toHaveLength(1);
+
+    // Review fixes after the PR is open: pushed into the same PR, no second PR.
+    setDirty(true);
+    const pushes = () => calls.filter((c) => c.method === 'git.push').length;
+    const before = pushes();
+    await turn(true);
+    expect(pushes()).toBe(before + 1);
+    expect(calls.filter((c) => c.method === 'git.commit')).toHaveLength(2);
+    expect(pulls).toHaveLength(1);
+    expect(repo.runRow(run.id).status).toBe('pr_open');
+
+    // A failed follow-up turn keeps the PR tracked (merge detection only looks at pr_open runs).
+    await svc.onAgentEvent(sid, { type: 'turn.done', stopReason: 'error' });
+    expect(repo.runRow(run.id).status).toBe('pr_open');
   });
 
   it('marks runs failed when the turn ends with an error', async () => {
@@ -350,9 +434,64 @@ describe('task runs', () => {
     const run = await svc.start(t.id, { agentId: 'codex', autoPr: true });
     await svc.onAgentEvent(run.sessionId!, { type: 'turn.done', stopReason: 'error' });
     expect(repo.runRow(run.id).status).toBe('failed');
-    // a later successful turn (after re-prompting) still triggers the auto flow
+    // a later successful turn (after re-prompting) is being worked on again …
+    await svc.onAgentEvent(run.sessionId!, { type: 'turn.done', stopReason: 'end_turn' });
+    expect(repo.runRow(run.id).status).toBe('running');
+    // … and still triggers the auto flow once the agent is done
+    tools.run(pid, run.sessionId!, 'task_done', {});
     await svc.onAgentEvent(run.sessionId!, { type: 'turn.done', stopReason: 'end_turn' });
     expect(repo.runRow(run.id).status).toBe('awaiting_review');
+  });
+
+  it('does not create two runs when started twice at once', async () => {
+    const pid = project(false);
+    const t = repo.createTask(pid, { title: 'Doppelklick', column: 'todo' });
+    const { client, calls } = fakeWsd();
+    const svc = new TaskRunService(runDeps(client, false).deps);
+    const results = await Promise.allSettled([svc.start(t.id, { agentId: 'codex' }), svc.start(t.id, { agentId: 'codex' })]);
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect((results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason).toMatchObject({ statusCode: 409 });
+    expect(calls.filter((c) => c.method === 'git.worktree.add')).toHaveLength(1);
+    expect(repo.runs(t.id)).toHaveLength(1);
+    // the guard is released afterwards (the regular busy check applies again)
+    await expect(svc.start(t.id, { agentId: 'codex' })).rejects.toThrow(/bereits/);
+  });
+
+  it('leaves the task where it was when the prompt fails', async () => {
+    const pid = project(false);
+    const t = repo.createTask(pid, { title: 'Kein Agent', column: 'todo' });
+    const svc = new TaskRunService(runDeps(fakeWsd().client, false, { failPrompt: true }).deps);
+    const run = await svc.start(t.id, { agentId: 'codex' });
+    expect(run.status).toBe('failed');
+    expect(repo.taskRow(t.id).col).toBe('todo');
+  });
+
+  it('closes runs of PRs closed without merge: task back to todo, worktree removed', async () => {
+    const pid = project(true);
+    const t = repo.createTask(pid, { title: 'Verworfen', column: 'todo' });
+    const { client, calls } = fakeWsd();
+    const { deps, setPullState } = runDeps(client);
+    const svc = new TaskRunService(deps);
+    const run = await svc.start(t.id, { agentId: 'codex', autoPr: true });
+    tools.run(pid, run.sessionId!, 'task_done', {});
+    await svc.onAgentEvent(run.sessionId!, { type: 'turn.done', stopReason: 'end_turn' });
+    expect(repo.taskRow(t.id).col).toBe('review');
+
+    setPullState('closed');
+    expect(await svc.checkPullRequests(pid)).toBe(1);
+    expect(repo.runRow(run.id).status).toBe('cancelled');
+    expect(repo.taskRow(t.id).col).toBe('todo');
+    // without force: uncommitted changes keep the worktree; the pushed branch survives either way
+    expect(calls.at(-1)).toEqual({ method: 'git.worktree.remove', params: { path: run.worktreePath } });
+  });
+
+  it('lets the user move a task to another column only with an explicit force override', () => {
+    const pid = project();
+    const a = repo.createTask(pid, { title: 'A', column: 'todo' });
+    const b = repo.createTask(pid, { title: 'B', column: 'todo' });
+    expect(() => repo.userMoveTask(a.id, { column: 'done' })).toThrow(/nur der Agent/);
+    expect(repo.userMoveTask(a.id, { column: 'todo', afterId: b.id }).col).toBe('todo'); // reorder is fine
+    expect(repo.userMoveTask(a.id, { column: 'done', force: true }).col).toBe('done');
   });
 
   it('finishes without a linked repo by committing only', async () => {

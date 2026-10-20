@@ -309,6 +309,7 @@ Definitionen in `packages/shared/src/agent-tools.ts`). Damit können alle Agents
 |---|---|
 | `project_overview`, `current_task` | Überblick (Status-Zählung, offene Meilensteine, angeheftete Notizen) bzw. die Aufgabe dieser Session |
 | `tasks_list`, `task_get`, `task_create`, `task_update`, `task_set_status` | Aufgaben lesen, anlegen, bearbeiten, Status (backlog/todo/in_progress/review/done) setzen |
+| `task_done` | Agent-Lauf: Aufgabe als fertig melden; erst dann committet/pusht Agentforge am Ende des Zugs und öffnet den PR |
 | `milestones_list`, `milestone_create`, `milestone_update` | Roadmap |
 | `notes_list`, `note_get`, `note_create`, `note_update` | Projektnotizen (inkl. `append`) |
 

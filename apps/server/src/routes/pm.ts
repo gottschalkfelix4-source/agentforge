@@ -27,7 +27,8 @@ const date = z
 
 // Status is agent-only: the user places new tasks in backlog/todo and can reorder within a column, but never
 // changes a task's column, ticks off subtasks or opens/closes milestones — the agent does that via its board tools
-// (pm/agent-tools.ts).
+// (pm/agent-tools.ts). The only exception is the explicit `force` override of `/move` (confirmed in the UI), the
+// escape hatch when an agent left a task in the wrong column.
 const taskFields = {
   title: z.string().trim().min(1).max(300),
   body: z.string().max(100_000).optional(),
@@ -37,8 +38,7 @@ const taskFields = {
 };
 const taskInput = z.object({ ...taskFields, column: z.enum(USER_TASK_COLUMNS).optional() });
 const taskPatch = z.strictObject(taskFields).partial();
-const AGENT_ONLY = 'Den Status von Aufgaben ändert nur der Agent.';
-const moveInput = z.object({ column, beforeId: z.string().nullish(), afterId: z.string().nullish() });
+const moveInput = z.object({ column, beforeId: z.string().nullish(), afterId: z.string().nullish(), force: z.boolean().optional() });
 const labelInput = z.object({ name: z.string().trim().min(1).max(50), color: color.optional() });
 // No `state`: opening/closing milestones is agent-only as well (new ones start open).
 const milestoneInput = z.strictObject({
@@ -175,9 +175,7 @@ export async function pmRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.post<{ Params: { tid: string } }>('/api/tasks/:tid/move', async (req) => {
-    const body = moveInput.parse(req.body);
-    if (repo.taskRow(req.params.tid).col !== body.column) throw new HttpError(403, 'agent_only', AGENT_ONLY);
-    const t = repo.moveTask(req.params.tid, body.column, body.beforeId, body.afterId);
+    const t = repo.userMoveTask(req.params.tid, moveInput.parse(req.body));
     publishPm(t.project_id, 'task');
     return repo.task(t.id);
   });

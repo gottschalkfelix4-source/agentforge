@@ -36,6 +36,13 @@ dialog, not by ticking subtasks (board, task dialog, todo bar), not by opening/c
 `USER_TASK_COLUMNS`, no `column` in PATCH, `/move` only within the same column, no `done` on subtasks, no `state` on milestones).
 Keep UI and API that way, and keep the rule in the AGENTS.md template (`packages/shared/src/agents-md.ts`,
 `docs/AGENTS.template.md`).
+The single, deliberate exception is the escape hatch for tasks an agent left in the wrong column: `/move` with
+`force: true` (`PmRepo.userMoveTask`), reachable only through the "Erzwingen" menu in the task dialog behind an explicit
+confirmation. Do not add implicit paths (drag & drop, status selects) on top of it.
+
+Agent task runs (`apps/server/src/pm/runs.ts`) only commit, push and open the PR after the agent declared the task
+done in that turn (`task_done` board tool, or moving its own task to review/done). A turn that ends with a question
+to the user leaves the worktree untouched.
 
 ## Testing without stepping on each other
 - Never stop/kill processes or containers you did not start. The user's dev servers run on 8787/5180.

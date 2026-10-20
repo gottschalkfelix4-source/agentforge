@@ -2,6 +2,13 @@
  * Agent task runs: a task is handed to a structured agent session that works in its own git
  * worktree (`.worktrees/task-<id>` on branch `vibe/task-<id>-<slug>`). "Finish" commits, pushes
  * and opens a PR (when a GitHub repo is linked); a merged PR moves the task to done.
+ *
+ * Auto flow: a turn only finishes the run when the agent declared the task done before it ended (`task_done`
+ * board tool, or moving its task to review/done — see `AgentTools.markRunDone`). Every turn ends with `end_turn`,
+ * including one where the agent stops to ask the user a question, so the stop reason alone must not commit
+ * half-done work and open a PR. An explicit signal was chosen over guessing "did the turn end with a question?"
+ * from the transcript: that heuristic is language- and agent-specific and fails silently in both directions.
+ * Without the signal the run simply stays open; the user can still finish it by hand.
  */
 import type {
   AgentEvent,
@@ -49,6 +56,8 @@ export interface RunDeps {
 export const AUTO_FINISH_REASONS = new Set(['end_turn', 'completed', 'stop', 'done']);
 
 const ACTIVE: RunRow['status'][] = ['running', 'awaiting_review', 'failed'];
+/** Runs whose session may still produce turns that Agentforge syncs (follow-ups after review or an open PR). */
+const OPEN: RunRow['status'][] = [...ACTIVE, 'pr_open'];
 
 export function slugify(s: string, max = 30): string {
   return (
@@ -112,7 +121,9 @@ export function buildTaskPrompt(c: PromptContext): string {
     '- Arbeite ausschließlich in diesem Verzeichnis. Ändere keine Dateien außerhalb davon und wechsle nicht den Branch.',
     '- Setze die Aufgabe vollständig um. Führe vorhandene Tests, Linter oder Builds aus, wenn das sinnvoll ist.',
     '- Wenn du fertig bist, committe alle Änderungen mit einer aussagekräftigen Commit-Nachricht (`git add -A && git commit`). Pushen ist nicht nötig – das übernimmt Agentforge.',
-    '- Über die Agentforge-Tools (MCP-Server `agentforge`) hast du Zugriff auf das Projekt-Board: lege für Folgearbeiten eigene Aufgaben an (`task_create`), halte Entscheidungen in Notizen fest (`note_create`/`note_update`) und schau bei Bedarf in Roadmap und andere Aufgaben. Den Status dieser Aufgabe setzt Agentforge beim Abschluss selbst auf „Review“.',
+    '- Über die Agentforge-Tools (MCP-Server `agentforge`) hast du Zugriff auf das Projekt-Board: lege für Folgearbeiten eigene Aufgaben an (`task_create`), halte Entscheidungen in Notizen fest (`note_create`/`note_update`) und schau bei Bedarf in Roadmap und andere Aufgaben.',
+    '- Ist die Aufgabe vollständig erledigt, rufe **`task_done`** auf (auch nach späteren Nachbesserungen, z. B. aus dem Review). Erst dann übernimmt Agentforge am Ende deines Zugs Commit, Push und Pull Request und setzt die Aufgabe auf „Review“. ' +
+      'Stellst du dem Nutzer eine Rückfrage oder ist die Arbeit noch nicht fertig, rufe `task_done` **nicht** auf – dann bleibt alles unangetastet, bis du weiterarbeitest.',
     '- Fasse zum Schluss kurz zusammen, was du geändert hast und was ggf. noch offen ist.',
   ].join('\n');
 }
@@ -125,6 +136,8 @@ export function prBody(task: Pick<TaskRow, 'body' | 'gh_issue_number' | 'title'>
 
 export class TaskRunService {
   private readonly finishing = new Set<string>();
+  /** Tasks whose run is being started (guards the check-then-insert in `start` against double clicks). */
+  private readonly starting = new Set<string>();
   private readonly checkTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(private readonly d: RunDeps) {}
@@ -146,9 +159,36 @@ export class TaskRunService {
     if (task.col !== column) this.repo.updateTask(task.id, { column });
   }
 
+  /** Review, unless the agent (or a merge) already moved the task to done. */
+  private toReview(taskId: string) {
+    const t = this.repo.taskRow(taskId);
+    if (t.col !== 'done') this.moveTask(t, 'review');
+  }
+
+  private hasOtherOpenRun(taskId: string, runId: string): boolean {
+    return !!this.repo.db.get(
+      `SELECT id FROM task_runs WHERE task_id = ? AND id != ? AND status IN (${OPEN.map(() => '?').join(', ')}) LIMIT 1`,
+      taskId,
+      runId,
+      ...OPEN,
+    );
+  }
+
   // ---- start --------------------------------------------------------------------------------
 
   async start(taskId: string, req: RunTaskRequest): Promise<TaskRun> {
+    // The busy check below and the insert are separated by several daemon calls (worktree creation), so a double
+    // click could otherwise create two runs and two worktrees. One server process owns the DB, so a set suffices.
+    if (this.starting.has(taskId)) throw new HttpError(409, 'run_starting', 'Der Agent für diese Aufgabe wird gerade gestartet');
+    this.starting.add(taskId);
+    try {
+      return await this.startRun(taskId, req);
+    } finally {
+      this.starting.delete(taskId);
+    }
+  }
+
+  private async startRun(taskId: string, req: RunTaskRequest): Promise<TaskRun> {
     const task = this.repo.taskRow(taskId);
     const projectId = task.project_id;
     const busy = this.repo.db.get<{ id: string }>("SELECT id FROM task_runs WHERE task_id = ? AND status = 'running'", taskId);
@@ -248,7 +288,8 @@ export class TaskRunService {
         this.repo.updateRun(runId, { status: 'failed' });
       }
     }
-    this.moveTask(this.repo.taskRow(taskId), 'in_progress');
+    // A run that failed to start (session error, prompt rejected) leaves the task where it was.
+    if (this.repo.runRow(runId).status === 'running') this.moveTask(this.repo.taskRow(taskId), 'in_progress');
     this.publish(projectId);
     return toRun(this.repo.runRow(runId));
   }
@@ -265,6 +306,8 @@ export class TaskRunService {
     const task = this.repo.taskRow(run.task_id);
     const projectId = task.project_id;
     try {
+      // Finishing consumes the agent's done signal; a later follow-up turn has to declare done again.
+      if (run.agent_done) this.repo.updateRun(runId, { agent_done: 0 });
       const client = await this.d.wsd(projectId);
       const cwd = run.worktree_path;
       const st = await client.call('git.status', { cwd });
@@ -277,7 +320,9 @@ export class TaskRunService {
       const changed = !!head && head !== run.base_sha;
       if (!changed) {
         if (!opts.auto) throw new HttpError(400, 'no_changes', 'Keine Änderungen im Worktree – es gibt nichts zu committen.');
+        // The agent declared the task done without changing files (e.g. nothing to do): the user reviews that.
         this.repo.updateRun(runId, { status: 'awaiting_review' });
+        this.toReview(task.id);
         this.publish(projectId);
         return toRun(this.repo.runRow(runId));
       }
@@ -299,7 +344,7 @@ export class TaskRunService {
       } else {
         this.repo.updateRun(runId, { status: 'awaiting_review' });
       }
-      this.moveTask(this.repo.taskRow(task.id), 'review');
+      this.toReview(task.id);
       this.publish(projectId);
       return toRun(this.repo.runRow(runId));
     } finally {
@@ -322,31 +367,47 @@ export class TaskRunService {
         if (!/is not a working tree|kein|not found|No such/i.test(err.message)) throw err;
       });
     }
-    if (run.status !== 'merged') this.repo.updateRun(runId, { status: 'cancelled' });
+    if (run.status !== 'merged') this.repo.updateRun(runId, { status: 'cancelled', agent_done: 0 });
     const t = this.repo.taskRow(task.id);
-    if (t.col === 'in_progress') this.moveTask(t, 'todo');
+    if (run.status !== 'merged' && (t.col === 'in_progress' || t.col === 'review') && !this.hasOtherOpenRun(task.id, runId)) this.moveTask(t, 'todo');
     this.publish(projectId);
     return toRun(this.repo.runRow(runId));
   }
 
   // ---- agent events (auto flow) ------------------------------------------------------------
 
-  /** Called for every `agent.event` notification. */
+  /**
+   * Called for every `agent.event` notification. Also handles follow-up turns of runs that already await review or
+   * have an open PR (review fixes, or a first turn without changes): once the agent declares done again, they are
+   * committed, pushed and PR'd like the first turn.
+   */
   onAgentEvent(sessionId: string, event: AgentEvent): Promise<void> | void {
     if (event.type !== 'turn.done') return;
     const run = this.repo.runBySession(sessionId);
-    if (!run || (run.status !== 'running' && run.status !== 'failed')) return;
+    if (!run || !OPEN.includes(run.status)) return;
     const projectId = this.repo.taskRow(run.task_id).project_id;
     if (event.stopReason === 'error') {
-      if (run.status !== 'failed') {
+      // Only a run that is still being worked on fails; a failed follow-up turn must not hide an open PR (merge
+      // detection only looks at pr_open) or work that already awaits review.
+      if (run.status === 'running') {
         this.repo.updateRun(run.id, { status: 'failed' });
         this.publish(projectId);
       }
       return;
     }
     if (!AUTO_FINISH_REASONS.has(event.stopReason)) return;
+    if (!run.agent_done) {
+      // The turn ended without the agent declaring the task done — typically a question to the user. Nothing is
+      // committed; a run that had failed is being worked on again.
+      if (run.status === 'failed') {
+        this.repo.updateRun(run.id, { status: 'running' });
+        this.publish(projectId);
+      }
+      return;
+    }
     if (!run.auto_pr) {
-      this.repo.updateRun(run.id, { status: 'awaiting_review' });
+      this.repo.updateRun(run.id, run.status === 'pr_open' ? { agent_done: 0 } : { agent_done: 0, status: 'awaiting_review' });
+      this.toReview(run.task_id);
       this.publish(projectId);
       return;
     }
@@ -354,7 +415,8 @@ export class TaskRunService {
       .then(() => undefined)
       .catch((err: Error) => {
         this.warn(`Auto-PR für Lauf ${run.id}: ${err.message}`);
-        this.repo.updateRun(run.id, { status: 'failed' });
+        // Keep pr_open so the merge of the existing PR is still detected.
+        if (run.status !== 'pr_open') this.repo.updateRun(run.id, { status: 'failed' });
         this.publish(projectId);
       });
   }
@@ -389,7 +451,17 @@ export class TaskRunService {
         }
         if (r.session_id) await this.d.sessions.stop(r.session_id).catch(() => undefined);
       } else {
-        this.repo.updateRun(r.id, { status: 'cancelled' });
+        // Closed without merge: the run is over. The task goes back to To Do (like a cancelled run) unless another
+        // run works on it. The worktree is removed without force, so uncommitted changes keep it; the branch with
+        // the PR's commits stays either way.
+        this.repo.updateRun(r.id, { status: 'cancelled', agent_done: 0 });
+        const t = this.repo.taskRow(r.task_id);
+        if ((t.col === 'review' || t.col === 'in_progress') && !this.hasOtherOpenRun(r.task_id, r.id)) this.moveTask(t, 'todo');
+        const client = this.d.connectedWsd(r.project_id);
+        if (client) {
+          await client.call('git.worktree.remove', { path: r.worktree_path }).catch((err: Error) => this.warn(`Worktree ${r.worktree_path}: ${err.message}`));
+        }
+        if (r.session_id) await this.d.sessions.stop(r.session_id).catch(() => undefined);
       }
       this.publish(r.project_id);
     }

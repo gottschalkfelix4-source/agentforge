@@ -258,4 +258,8 @@ export const migrations: string[] = [
     PRIMARY KEY (project_id, provider_id)
   );
   `,
+
+  /* v9: the agent of a task run declares the task done (task_done tool) before Agentforge commits/pushes/opens the PR */ `
+  ALTER TABLE task_runs ADD COLUMN agent_done INTEGER NOT NULL DEFAULT 0;
+  `,
 ];

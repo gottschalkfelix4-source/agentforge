@@ -87,6 +87,12 @@ export const AGENT_TOOLS: AgentToolDef[] = [
     inputSchema: { type: 'object', properties: { id: id('Task'), status }, required: ['id', 'status'] },
   },
   {
+    name: 'task_done',
+    description:
+      'Only for chats started from the task board (agent task runs): declare the board task of this chat finished. When your turn ends, Agentforge then commits, pushes and opens/updates the pull request and moves the task to review. Call it at the end of every turn in which the task (or a requested follow-up such as review fixes) is complete — but NOT when you stop to ask the user a question or the work is unfinished; then just end your turn and nothing is committed.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'subtasks_add',
     description:
       'Add subtasks (checklist items) to a board task, e.g. the steps you plan for it. The task then shows up in the todo bar of this chat, where the user follows your progress.',

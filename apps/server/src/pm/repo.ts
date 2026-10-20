@@ -70,6 +70,8 @@ export interface RunRow {
   base_branch: string | null;
   base_sha: string | null;
   profile_id: string | null;
+  /** 1 once the agent declared the task done (task_done tool); consumed by the next finish. */
+  agent_done: number;
 }
 
 export interface SubtaskRow {
@@ -445,6 +447,17 @@ export class PmRepo {
       this.db.update('tasks', id, { col, rank: plan.rank, updated_at: nowIso() });
     });
     return this.taskRow(id);
+  }
+
+  /**
+   * A move requested by the user. Task status is agent-only, so the column may only change with an explicit
+   * `force` override (confirmed in the UI) — the escape hatch when an agent left a task in the wrong column.
+   */
+  userMoveTask(id: string, input: { column: TaskColumn; beforeId?: string | null; afterId?: string | null; force?: boolean }): TaskRow {
+    if (this.taskRow(id).col !== input.column && !input.force) {
+      throw new HttpError(403, 'agent_only', 'Den Status von Aufgaben ändert nur der Agent.');
+    }
+    return this.moveTask(id, input.column, input.beforeId, input.afterId);
   }
 
   deleteTask(id: string): TaskRow {

@@ -102,6 +102,25 @@ export class AgentTools {
     return out;
   }
 
+  /**
+   * The agent of a task run declares its task done (`task_done`, or moving that task to review/done). Only then
+   * does Agentforge commit, push and open the PR when the turn ends (`TaskRunService.onAgentEvent`) — a turn that
+   * ends with a question to the user leaves the worktree alone. Moving the task counts as well, because the
+   * AGENTS.md rules already tell agents to set finished tasks to review, and because workspace images built before
+   * `task_done` existed do not offer that tool.
+   */
+  private markRunDone(projectId: string, sessionId: string | null, taskId?: string): boolean {
+    const run = sessionId ? this.repo.runBySession(sessionId) : undefined;
+    if (!run || (taskId && run.task_id !== taskId)) return false;
+    if (!['running', 'failed', 'awaiting_review', 'pr_open'].includes(run.status)) return false;
+    if (this.repo.taskRow(run.task_id).project_id !== projectId) return false;
+    if (!run.agent_done) {
+      this.repo.updateRun(run.id, { agent_done: 1 });
+      publishPm(projectId, 'run');
+    }
+    return true;
+  }
+
   /** Remembers that this chat works on a task, so it appears in the chat's todo bar. */
   private link(sessionId: string | null, taskId: string) {
     if (sessionId) this.repo.linkSessionTask(sessionId, taskId);
@@ -188,6 +207,7 @@ export class AgentTools {
           labelIds: this.labelIds(projectId, a.labels),
         });
         if (a.status === 'in_progress' || a.status === 'review') this.link(sessionId, a.id);
+        if (a.status === 'review' || a.status === 'done') this.markRunDone(projectId, sessionId, a.id);
         publishPm(projectId, 'task');
         return taskDetail(this.repo.task(a.id));
       }
@@ -214,8 +234,25 @@ export class AgentTools {
         const t = this.task(projectId, a.id);
         if (t.column !== a.status) this.repo.moveTask(a.id, a.status);
         if (a.status === 'in_progress' || a.status === 'review') this.link(sessionId, a.id);
+        if (a.status === 'review' || a.status === 'done') this.markRunDone(projectId, sessionId, a.id);
         publishPm(projectId, 'task');
         return { ...taskSummary(this.repo.task(a.id)), message: `Status: ${STATUS_LABEL[a.status]}` };
+      }
+      case 'task_done': {
+        if (!this.markRunDone(projectId, sessionId)) {
+          throw new HttpError(
+            400,
+            'no_task_run',
+            'Diese Sitzung gehört zu keinem offenen Agent-Lauf vom Board. task_done gilt nur dort – setze den Status sonst mit task_set_status.',
+          );
+        }
+        const run = this.repo.runBySession(sessionId!)!;
+        return {
+          ...taskSummary(this.repo.task(run.task_id)),
+          message: run.auto_pr
+            ? 'Als fertig gemeldet. Sobald dein Zug endet, committet und pusht Agentforge die Änderungen und öffnet bzw. aktualisiert den Pull Request.'
+            : 'Als fertig gemeldet. Sobald dein Zug endet, geht die Aufgabe zur Prüfung an den Nutzer.',
+        };
       }
       case 'milestones_list':
         return this.repo.milestones(projectId).map(milestoneSummary);
