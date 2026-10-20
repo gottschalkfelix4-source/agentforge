@@ -7,9 +7,11 @@ ARG NODE_IMAGE=node:22-bookworm
 ARG RUNTIME_IMAGE=node:22-bookworm-slim
 
 # ---------------------------------------------------------------------------
-# Stage 1: build shared, web and server; produce a pruned production deploy
+# Stage 1: compile shared, web and server – on the build machine's own
+# architecture: the output is plain JavaScript, identical for every target, and
+# compiling it under QEMU (arm64) took several minutes.
 # ---------------------------------------------------------------------------
-FROM ${NODE_IMAGE} AS build
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS compile
 ARG PNPM_VERSION=10.34.5
 RUN npm install -g --no-audit --no-fund pnpm@${PNPM_VERSION}
 WORKDIR /src
@@ -18,28 +20,35 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/web/package.json apps/web/
 COPY apps/server/package.json apps/server/
-RUN pnpm install --frozen-lockfile --filter "@vibe/server..." --filter "@vibe/web..." \
- || pnpm install --no-frozen-lockfile --filter "@vibe/server..." --filter "@vibe/web..."
+RUN pnpm install --frozen-lockfile --filter "@vibe/server..." --filter "@vibe/web..."  || pnpm install --no-frozen-lockfile --filter "@vibe/server..." --filter "@vibe/web..."
 
 COPY packages/shared packages/shared
 COPY apps/web apps/web
 COPY apps/server apps/server
-RUN pnpm --filter @vibe/shared build \
- && pnpm --filter @vibe/web build \
- && pnpm --filter @vibe/server build
-
-# Production-only node_modules for the server (native deps such as
-# better-sqlite3 and @node-rs/argon2 are built here, on the same Debian release
-# as the runtime image). dist folders are copied explicitly because packing
-# may honour .gitignore (which ignores dist/).
-RUN pnpm --filter @vibe/server deploy --prod --legacy /out \
- && rm -rf /out/dist && cp -r apps/server/dist /out/dist \
- && SHARED_DIR="$(cd /out && node -p "require('path').dirname(require.resolve('@vibe/shared/package.json'))" 2>/dev/null || true)" \
- && if [ -n "$SHARED_DIR" ]; then rm -rf "$SHARED_DIR/dist" && cp -r packages/shared/dist "$SHARED_DIR/dist"; fi \
- && test -f /out/dist/index.js
+RUN pnpm --filter @vibe/shared build  && pnpm --filter @vibe/web build  && pnpm --filter @vibe/server build
 
 # ---------------------------------------------------------------------------
-# Stage 2: runtime
+# Stage 2: pruned production deploy of the server – on the target
+# architecture, because native deps (@node-rs/argon2) ship per-arch binaries
+# and must match the Debian release of the runtime image. dist folders are
+# copied explicitly because packing may honour .gitignore (which ignores dist/).
+# ---------------------------------------------------------------------------
+FROM ${NODE_IMAGE} AS build
+ARG PNPM_VERSION=10.34.5
+RUN npm install -g --no-audit --no-fund pnpm@${PNPM_VERSION}
+WORKDIR /src
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/server/package.json apps/server/
+RUN pnpm install --frozen-lockfile --prod --filter "@vibe/server..."  || pnpm install --no-frozen-lockfile --prod --filter "@vibe/server..."
+
+COPY --from=compile /src/packages/shared/dist packages/shared/dist
+COPY --from=compile /src/apps/server/dist apps/server/dist
+RUN pnpm --filter @vibe/server deploy --prod --legacy /out  && rm -rf /out/dist && cp -r apps/server/dist /out/dist  && SHARED_DIR="$(cd /out && node -p "require('path').dirname(require.resolve('@vibe/shared/package.json'))" 2>/dev/null || true)"  && if [ -n "$SHARED_DIR" ]; then rm -rf "$SHARED_DIR/dist" && cp -r packages/shared/dist "$SHARED_DIR/dist"; fi  && test -f /out/dist/index.js
+
+# ---------------------------------------------------------------------------
+# Stage 3: runtime
 # ---------------------------------------------------------------------------
 FROM ${RUNTIME_IMAGE}
 
@@ -54,7 +63,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=build /out /app
-COPY --from=build /src/apps/web/dist /app/public
+COPY --from=compile /src/apps/web/dist /app/public
 
 # Runs as root so it can talk to the mounted Docker socket (its group id
 # differs between hosts).
