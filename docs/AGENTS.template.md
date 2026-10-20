@@ -96,6 +96,7 @@ Projektspezifische Regeln gehören oberhalb davon.
 | `tasks_list`, `task_get` | Aufgaben suchen und lesen (Filter: Status, Meilenstein, Suchtext) |
 | `task_create`, `task_update` | Aufgaben anlegen und bearbeiten (Titel, Beschreibung, Status, Meilenstein, Labels) |
 | `task_set_status` | Status ändern: `backlog`, `todo`, `in_progress`, `review`, `done` |
+| `task_done` | Nur in vom Board gestarteten Läufen: Aufgabe als fertig melden – Agentforge committet, pusht und öffnet den PR, sobald dein Zug endet (nicht aufrufen, wenn du eine Rückfrage stellst) |
 | `subtasks_add`, `subtask_update` | Unteraufgaben (Checkliste) einer Aufgabe anlegen und abhaken (`done: true`) |
 | `milestones_list`, `milestone_create`, `milestone_update` | Roadmap-Meilensteine (Fälligkeit `YYYY-MM-DD`, offen/geschlossen) |
 | `notes_list`, `note_get`, `note_create`, `note_update` | Projektnotizen lesen und schreiben (`append` hängt Text an) |

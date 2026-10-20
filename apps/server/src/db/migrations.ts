@@ -249,4 +249,8 @@ export const migrations: string[] = [
   /* v7: default approval policy of an agent profile (preselected for its chat sessions and task runs) */ `
   ALTER TABLE agent_profiles ADD COLUMN approval_policy TEXT NOT NULL DEFAULT 'ask';
   `,
+
+  /* v8: the agent of a task run declares the task done (task_done tool) before Agentforge commits/pushes/opens the PR */ `
+  ALTER TABLE task_runs ADD COLUMN agent_done INTEGER NOT NULL DEFAULT 0;
+  `,
 ];

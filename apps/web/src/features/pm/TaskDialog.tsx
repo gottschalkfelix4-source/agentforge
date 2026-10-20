@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { toast } from 'sonner';
 import { Bot, Check, ExternalLink, GitBranch, GitPullRequest, MessageSquare, Plus, Tag, Trash2, X } from 'lucide-react';
-import type { ApprovalPolicy, Label, Task, TaskRun } from '@vibe/shared';
+import { TASK_COLUMNS, type ApprovalPolicy, type Label, type Task, type TaskColumn, type TaskRun } from '@vibe/shared';
 import { useProfiles } from '@/lib/queries';
 import { useNav, useUi } from '@/lib/store';
 import { cn, errorMessage } from '@/lib/utils';
@@ -246,7 +246,9 @@ function TaskEditor({ projectId, task, onClose }: { projectId: string; task: Tas
   const [title, setTitle] = React.useState(task.title);
   const [body, setBody] = React.useState(task.body);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [forceColumn, setForceColumn] = React.useState<TaskColumn | null>(null);
   const update = usePmMutation(projectId, (v: Parameters<typeof pmApi.updateTask>[1]) => pmApi.updateTask(task.id, v));
+  const forceMove = usePmMutation(projectId, (column: TaskColumn) => pmApi.moveTask(task.id, { column, force: true }));
   const remove = usePmMutation(projectId, () => pmApi.deleteTask(task.id));
 
   // Adopt remote changes unless the user is editing.
@@ -285,12 +287,31 @@ function TaskEditor({ projectId, task, onClose }: { projectId: string; task: Tas
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Field label="Status">
-          {/* Read-only: the status is set by the agent (board tools), never by the user. */}
-          <div
-            title="Den Status setzt der Agent"
-            className="flex h-8 items-center rounded-lg border border-input bg-muted/40 px-2.5 text-sm text-muted-foreground"
-          >
-            {COLUMN_LABEL[task.column]}
+          {/* Read-only: the status is set by the agent (board tools). The only user escape hatch is the explicit,
+              confirmed override below (`force` on /move), for tasks an agent left in the wrong column. */}
+          <div className="flex h-8 items-center gap-1">
+            <div
+              title="Den Status setzt der Agent"
+              className="flex h-8 flex-1 items-center rounded-lg border border-input bg-muted/40 px-2.5 text-sm text-muted-foreground"
+            >
+              {COLUMN_LABEL[task.column]}
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs text-muted-foreground" title="Status ausnahmsweise selbst setzen">
+                  Erzwingen
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Status erzwingen</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {TASK_COLUMNS.filter((c) => c !== task.column).map((c) => (
+                  <DropdownMenuItem key={c} onSelect={() => setForceColumn(c)}>
+                    {COLUMN_LABEL[c]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </Field>
         <Field label="Meilenstein">
@@ -314,6 +335,26 @@ function TaskEditor({ projectId, task, onClose }: { projectId: string; task: Tas
           )}
         </Field>
       </div>
+
+      {forceColumn && forceColumn !== task.column && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs">
+          <span className="flex-1">
+            Den Status setzt normalerweise nur der Agent. Aufgabe trotzdem von „{COLUMN_LABEL[task.column]}“ nach „{COLUMN_LABEL[forceColumn]}“
+            verschieben? Laufende Agent-Läufe bleiben davon unberührt.
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => setForceColumn(null)}>
+            Abbrechen
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={forceMove.isPending}
+            onClick={() => forceMove.mutate(forceColumn, { onSuccess: () => setForceColumn(null) })}
+          >
+            Status erzwingen
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-1.5">
         {task.labels.map((l: Label) => (

@@ -552,6 +552,7 @@ const BOARD_TOOL_LABELS: Record<string, string> = {
   task_create: 'Aufgabe angelegt',
   task_update: 'Aufgabe bearbeitet',
   task_set_status: 'Aufgaben-Status geändert',
+  task_done: 'Aufgabe als fertig gemeldet',
   subtasks_add: 'Unteraufgaben angelegt',
   subtask_update: 'Unteraufgabe aktualisiert',
   milestones_list: 'Roadmap gelesen',

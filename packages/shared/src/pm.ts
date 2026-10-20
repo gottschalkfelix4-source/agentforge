@@ -78,6 +78,11 @@ export interface MoveTaskRequest {
   /** Neighbours after the move (ids); either may be null at the column edges. */
   beforeId?: string | null;
   afterId?: string | null;
+  /**
+   * Explicit user override of the agent-only status rule (the board asks for confirmation first): allows moving
+   * the task to another column, e.g. when an agent left it in the wrong one.
+   */
+  force?: boolean;
 }
 
 export interface RunTaskRequest {
